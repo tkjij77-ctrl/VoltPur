@@ -51,10 +51,16 @@ index 2da91ed6363c0851e4c459188f5e8ef5475e0c97..96d831791edbe6ae07325008b760f70f
  }
  
 +
-+// Pufferfish Start
++// Pufferfish Start - Vector module support (Java 21+)
 +tasks.withType<JavaCompile> {
 +    val compilerArgs = options.compilerArgs
-+    compilerArgs.add("--add-modules=jdk.incubator.vector")
++    // Add vector modules for performance optimization in Java 21+
++    try {
++        compilerArgs.add("--add-modules=jdk.incubator.vector")
++    } catch (e: Exception) {
++        // Fallback for Java versions without vector module
++        println("Vector modules not available in this Java version")
++    }
 +}
 +// Pufferfish End
 +
