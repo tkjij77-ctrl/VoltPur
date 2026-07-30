@@ -1,11 +1,10 @@
 --- a/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
 +++ b/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
-@@ -100,6 +_,17 @@
+@@ -103,6 +103,17 @@ public class PluginInitializerManager {
          // Register the default plugin directory
          io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE, pluginSystem.pluginDirectoryPath());
  
-+        // VoltPur start - تحميل plugins تحسين الأداء من مجلد منفصل
-+        // هاد المجلد خاص بـ Performance plugins اللي تتحمل قبل plugins العادية
++        // VoltPur start - plugin-pro folder support
 +        java.nio.file.Path pluginProDir = pluginSystem.pluginDirectoryPath().getParent().resolve("plugin-pro");
 +        if (java.nio.file.Files.exists(pluginProDir)) {
 +            io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(
@@ -15,6 +14,6 @@
 +        }
 +        // VoltPur end
 +
+         // Register plugins from the flag
          @SuppressWarnings("unchecked")
-         java.util.List<java.io.File> files = (java.util.List<java.io.File>) optionSet.valuesOf("add-plugin");
- 
+         java.util.List<Path> files = ((java.util.List<File>) optionSet.valuesOf("add-plugin")).stream().map(File::toPath).toList();
