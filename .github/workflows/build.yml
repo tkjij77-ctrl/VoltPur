@@ -4,18 +4,13 @@ on:
   push:
     branches: [ ver/26.2 ]
   workflow_dispatch:
-    inputs:
-      version:
-        description: 'Release version'
-        required: false
-        default: '26.2-build-1'
 
 jobs:
   build:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 🔍 Checkout VoltPur (OWN REPO)
+      - name: 🔍 Checkout VoltPur
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -40,11 +35,30 @@ jobs:
         run: |
           ./gradlew :purpur-server:createPaperclipJar --stacktrace
 
+      - name: 📝 Prepare Artifacts
+        run: |
+          cd purpur-server/build/libs
+          ls -lh
+          # Find the main paperclip jar (mojmap)
+          PAPERCLIP_JAR=$(ls -1 *mojmap*paperclip*.jar 2>/dev/null | head -n 1)
+          if [ -z "$PAPERCLIP_JAR" ]; then
+            PAPERCLIP_JAR=$(ls -1 *paperclip*.jar 2>/dev/null | head -n 1)
+          fi
+          echo "Found jar: $PAPERCLIP_JAR"
+          cp "$PAPERCLIP_JAR" VoltPur-26.2.jar
+          cp "$PAPERCLIP_JAR" VoltPur.jar
+          cp "$PAPERCLIP_JAR" server.jar
+          sha256sum VoltPur-26.2.jar > VoltPur-26.2.jar.sha256
+          ls -lh VoltPur*.jar server.jar
+          file VoltPur-26.2.jar
+
       - name: 📤 Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: VoltPur-26.2-Paperclip
           path: |
+            purpur-server/build/libs/VoltPur-26.2.jar
+            purpur-server/build/libs/VoltPur.jar
+            purpur-server/build/libs/server.jar
+            purpur-server/build/libs/VoltPur-26.2.jar.sha256
             purpur-server/build/libs/*-paperclip.jar
-            purpur-server/build/libs/*.jar
-            purpur-server/build/libs/*-mojmap-paperclip.jar
