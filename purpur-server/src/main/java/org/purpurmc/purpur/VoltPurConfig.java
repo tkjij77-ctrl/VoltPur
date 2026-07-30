@@ -25,6 +25,7 @@ public class VoltPurConfig {
     public static boolean tpsMonitor = true;
     public static boolean hopperOptimization = true;
     public static boolean entityLimiter = true;
+    public static String githubToken = "";
 
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
@@ -53,6 +54,8 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
         config.addDefault("modules.performance.hopper-optimization", hopperOptimization);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
+        config.addDefault("update.github-token", githubToken);
+        config.addDefault("update.auto-backup", true);
         config.options().copyDefaults(true);
         
         backupEnabled = config.getBoolean("modules.backup.enabled", backupEnabled);
@@ -70,6 +73,8 @@ public class VoltPurConfig {
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
         hopperOptimization = config.getBoolean("modules.performance.hopper-optimization", hopperOptimization);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
+        githubToken = config.getString("update.github-token", githubToken);
+
 
         try { config.save(CONFIG_FILE); } catch (IOException e) { Bukkit.getLogger().warning("[VoltPur] Save failed: " + e.getMessage()); }
     }
