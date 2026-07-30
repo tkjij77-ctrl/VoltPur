@@ -42,7 +42,7 @@ public class VoltPurCommand extends Command {
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (args.length == 0 || args[0].equalsIgnoreCase("version") || args[0].equalsIgnoreCase("info")) {
-            sender.sendMessage(Component.text("⚡ VoltPur " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.GOLD));
+            sender.sendMessage(Component.text("[VoltPur] VoltPur " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.GOLD));
             sender.sendMessage(Component.text("Brand: " + VoltPur.BRAND + " | Modules: " + VoltPur.MODULES.length, NamedTextColor.YELLOW));
             sender.sendMessage(Component.text("Features: plugin-pro/, per-world plugins, padmin webui, connection stability", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("Use /voltpur modules to see all 21 modules", NamedTextColor.AQUA));
@@ -50,7 +50,7 @@ public class VoltPurCommand extends Command {
             return true;
         }
         if (args[0].equalsIgnoreCase("modules")) {
-            sender.sendMessage(Component.text("=== ⚡ VoltPur Modules (" + VoltPur.MODULES.length + ") ===", NamedTextColor.GOLD));
+            sender.sendMessage(Component.text("=== [VoltPur] VoltPur Modules (" + VoltPur.MODULES.length + ") ===", NamedTextColor.GOLD));
             for (int i=0;i<VoltPur.MODULES.length;i++) {
                 sender.sendMessage(Component.text((i+1)+". "+VoltPur.MODULES[i]+" - ENABLED", NamedTextColor.GREEN));
             }
@@ -72,7 +72,7 @@ public class VoltPurCommand extends Command {
                 return true;
             }
             String buildId = args.length > 1 ? args[1] : null;
-            sender.sendMessage(Component.text("⚡ VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
             if (buildId != null) {
                 sender.sendMessage(Component.text("Build ID: " + buildId, NamedTextColor.GRAY));
             } else {
@@ -137,7 +137,7 @@ public class VoltPurCommand extends Command {
 
             // Step 3: Download artifact zip
             if (!hasToken) {
-                sender.sendMessage(Component.text("⚠️ No GitHub token in voltpur.yml, trying public release...", NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("[WARN] No GitHub token in voltpur.yml, trying public release...", NamedTextColor.YELLOW));
                 try {
                     // Try latest release (public, no token needed) - works for /vo up without buildId
                     String releaseUrl;
@@ -165,7 +165,7 @@ public class VoltPurCommand extends Command {
                         sender.sendMessage(Component.text("Backed up to server.jar.old", NamedTextColor.GRAY));
                     }
                     Files.copy(tempJar, java.nio.file.Path.of("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                    sender.sendMessage(Component.text("✅ Updated server.jar from public release (" + (size/1024/1024) + "MB)", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("[OK] Updated server.jar from public release (" + (size/1024/1024) + "MB)", NamedTextColor.GREEN));
                     sender.sendMessage(Component.text("Restart to apply: /restart", NamedTextColor.YELLOW));
                     Files.deleteIfExists(tempJar);
                     return;
@@ -237,7 +237,7 @@ public class VoltPurCommand extends Command {
             Files.copy(java.nio.file.Path.of(extractedJar), targetJar, StandardCopyOption.REPLACE_EXISTING);
 
             long newSize = Files.size(targetJar);
-            sender.sendMessage(Component.text("✅ Updated server.jar (" + (newSize/1024/1024) + "MB) from build " + runId, NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("[OK] Updated server.jar (" + (newSize/1024/1024) + "MB) from build " + runId, NamedTextColor.GREEN));
             sender.sendMessage(Component.text("Restart server to apply update: /restart or stop & start", NamedTextColor.YELLOW));
             sender.sendMessage(Component.text("Old jar backed up as server.jar.old", NamedTextColor.GRAY));
 
@@ -246,7 +246,7 @@ public class VoltPurCommand extends Command {
             // Don't delete tempDir immediately, keep for debugging
 
         } catch (Exception e) {
-            sender.sendMessage(Component.text("❌ Update failed: " + e.getMessage(), NamedTextColor.RED));
+            sender.sendMessage(Component.text("[FAIL] Update failed: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
             Bukkit.getLogger().warning("[VoltPur] Update failed: " + e.getMessage());
         }

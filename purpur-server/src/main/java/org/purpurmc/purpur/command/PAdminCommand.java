@@ -67,7 +67,7 @@ public class PAdminCommand extends Command {
     }
 
     private static void handleMain(HttpExchange exchange) throws IOException {
-        String html = "<html><head><title>VoltPur PAdmin</title></head><body style='font-family:sans-serif;background:#0f0f1a;color:#e0e0e0;padding:20px'><h1 style='color:#9b59b6'>⚡ VoltPur PAdmin</h1><p>Version: 26.2-VoltPur</p><p>Modules: 21</p><p>plugin-pro/ folder: ENABLED</p><p>Worlds: "+Bukkit.getWorlds().size()+"</p><p>Players: "+Bukkit.getOnlinePlayers().size()+"</p><hr><p>API: /api/status (coming soon)</p></body></html>";
+        String html = "<html><head><title>VoltPur PAdmin</title></head><body style='font-family:sans-serif;background:#0f0f1a;color:#e0e0e0;padding:20px'><h1 style='color:#9b59b6'>[VoltPur] VoltPur PAdmin</h1><p>Version: 26.2-VoltPur</p><p>Modules: 21</p><p>plugin-pro/ folder: ENABLED</p><p>Worlds: "+Bukkit.getWorlds().size()+"</p><p>Players: "+Bukkit.getOnlinePlayers().size()+"</p><hr><p>API: /api/status (coming soon)</p></body></html>";
         byte[] resp = html.getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
         exchange.sendResponseHeaders(200, resp.length);
