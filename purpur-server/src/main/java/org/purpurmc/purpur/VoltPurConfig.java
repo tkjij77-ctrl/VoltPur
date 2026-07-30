@@ -24,6 +24,7 @@ public class VoltPurConfig {
     public static int maxItemsPerWorld = 500;
     public static boolean tpsMonitor = true;
     public static boolean hopperOptimization = true;
+    public static int hopperCooldownEmpty = 20;
     public static boolean entityLimiter = true;
     public static String githubToken = "";
 
@@ -53,6 +54,7 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.max-items-per-world", maxItemsPerWorld);
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
         config.addDefault("modules.performance.hopper-optimization", hopperOptimization);
+        config.addDefault("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
         config.addDefault("update.github-token", githubToken);
         config.addDefault("update.auto-backup", true);
@@ -72,6 +74,7 @@ public class VoltPurConfig {
         maxItemsPerWorld = config.getInt("modules.performance.max-items-per-world", maxItemsPerWorld);
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
         hopperOptimization = config.getBoolean("modules.performance.hopper-optimization", hopperOptimization);
+        hopperCooldownEmpty = config.getInt("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
         githubToken = config.getString("update.github-token", githubToken);
 
