@@ -26,7 +26,7 @@ index abc123..def456 100644
      @org.jetbrains.annotations.Nullable
      private Direction facing;
  
-@@ -105,6 +109,30 @@ public class HopperBlockEntity extends RandomizableContainerBlockEntity implements Hopper {
+@@ -105,6 +109,34 @@ public class HopperBlockEntity extends RandomizableContainerBlockEntity implements Hopper {
      }
  
      public static void pushItemsTick(Level level, BlockPos pos, BlockState state, HopperBlockEntity blockEntity) {
