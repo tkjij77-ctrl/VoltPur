@@ -46,8 +46,7 @@ public class VoltPur {
                 java.io.File readme = new java.io.File(pluginProFolder, "README.txt");
                 if (!readme.exists()) {
                     try (java.io.FileWriter fw = new java.io.FileWriter(readme)) {
-                        fw.write("VoltPur plugin-pro/ folder
-");
+                        fw.write("VoltPur plugin-pro/ folder\n");
                         fw.write("Put performance plugins here:\n");
                         fw.write("- Spark, ClearLag, etc\n");
                         fw.write("They will load before normal plugins\n");
