@@ -1,19 +1,30 @@
 --- a/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
 +++ b/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
-@@ -103,6 +103,17 @@ public class PluginInitializerManager {
+@@ -96,6 +96,22 @@ public class PluginInitializerManager {
          // Register the default plugin directory
          io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE, pluginSystem.pluginDirectoryPath());
  
-+        // VoltPur start - plugin-pro folder support
-+        java.nio.file.Path pluginProDir = pluginSystem.pluginDirectoryPath().getParent().resolve("plugin-pro");
-+        if (java.nio.file.Files.exists(pluginProDir)) {
-+            io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(
-+                io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE,
-+                pluginProDir
-+            );
++        // VoltPur start - تحميل plugins تحسين الأداء من مجلد منفصل
++        // Pterodactyl fix: getParent() can return null if plugins is relative
++        try {
++            java.nio.file.Path pluginsPath = pluginSystem.pluginDirectoryPath();
++            java.nio.file.Path parentPath = pluginsPath.getParent();
++            if (parentPath == null) {
++                parentPath = pluginsPath.toAbsolutePath().getParent();
++                if (parentPath == null) parentPath = java.nio.file.Path.of(".");
++            }
++            java.nio.file.Path voltpurPluginProDir = parentPath.resolve("plugin-pro");
++            if (java.nio.file.Files.exists(voltpurPluginProDir)) {
++                io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(
++                    io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE,
++                    voltpurPluginProDir
++                );
++            }
++        } catch (Exception e) {
++            LOGGER.warn("VoltPur: Failed to load plugin-pro folder: {}", e.getMessage());
 +        }
 +        // VoltPur end
 +
          // Register plugins from the flag
+ 
          @SuppressWarnings("unchecked")
-         java.util.List<Path> files = ((java.util.List<File>) optionSet.valuesOf("add-plugin")).stream().map(File::toPath).toList();
