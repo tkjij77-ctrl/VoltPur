@@ -20,6 +20,11 @@ public class VoltPurConfig {
     public static boolean perWorldPlugin = true;
     public static boolean padminWebUI = true;
     public static int padminPort = 25567;
+    public static boolean performanceEnabled = true;
+    public static int maxItemsPerWorld = 500;
+    public static boolean tpsMonitor = true;
+    public static boolean hopperOptimization = true;
+    public static boolean entityLimiter = true;
 
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
@@ -43,6 +48,11 @@ public class VoltPurConfig {
         config.addDefault("modules.per-world-plugin.enabled", perWorldPlugin);
         config.addDefault("modules.padmin-webui.enabled", padminWebUI);
         config.addDefault("modules.padmin-webui.port", padminPort);
+        config.addDefault("modules.performance.enabled", performanceEnabled);
+        config.addDefault("modules.performance.max-items-per-world", maxItemsPerWorld);
+        config.addDefault("modules.performance.tps-monitor", tpsMonitor);
+        config.addDefault("modules.performance.hopper-optimization", hopperOptimization);
+        config.addDefault("modules.performance.entity-limiter", entityLimiter);
         config.options().copyDefaults(true);
         
         backupEnabled = config.getBoolean("modules.backup.enabled", backupEnabled);
@@ -55,6 +65,11 @@ public class VoltPurConfig {
         perWorldPlugin = config.getBoolean("modules.per-world-plugin.enabled", perWorldPlugin);
         padminWebUI = config.getBoolean("modules.padmin-webui.enabled", padminWebUI);
         padminPort = config.getInt("modules.padmin-webui.port", padminPort);
+        performanceEnabled = config.getBoolean("modules.performance.enabled", performanceEnabled);
+        maxItemsPerWorld = config.getInt("modules.performance.max-items-per-world", maxItemsPerWorld);
+        tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
+        hopperOptimization = config.getBoolean("modules.performance.hopper-optimization", hopperOptimization);
+        entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
 
         try { config.save(CONFIG_FILE); } catch (IOException e) { Bukkit.getLogger().warning("[VoltPur] Save failed: " + e.getMessage()); }
     }

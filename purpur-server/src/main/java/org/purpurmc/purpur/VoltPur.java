@@ -36,6 +36,27 @@ public class VoltPur {
         if (initialized) return;
         initialized = true;
         Logger logger = Bukkit.getLogger();
+        // VoltPur: Create plugin-pro folder if not exists (so user can see it)
+        try {
+            java.io.File pluginProFolder = new java.io.File("plugin-pro");
+            if (!pluginProFolder.exists()) {
+                pluginProFolder.mkdirs();
+                logger.info("[VoltPur] Created plugin-pro/ folder - put performance plugins here (Spark, etc)");
+                // Create README inside
+                java.io.File readme = new java.io.File(pluginProFolder, "README.txt");
+                if (!readme.exists()) {
+                    try (java.io.FileWriter fw = new java.io.FileWriter(readme)) {
+                        fw.write("VoltPur plugin-pro/ folder
+");
+                        fw.write("Put performance plugins here:\n");
+                        fw.write("- Spark, ClearLag, etc\n");
+                        fw.write("They will load before normal plugins\n");
+                    }
+                }
+            }
+        } catch (Exception e) {
+            logger.warning("[VoltPur] Could not create plugin-pro folder: " + e.getMessage());
+        }
         logger.info("");
         logger.info("  V O L T P U R - " + VERSION);
         logger.info("  Loading " + MODULES.length + " modules...");
@@ -46,6 +67,7 @@ public class VoltPur {
         logger.info("  [VoltPur] Per-World Plugins: ENABLED");
         logger.info("  [VoltPur] PAdmin WebUI: /padmin");
         try { VoltPurConfig.init(); } catch(Exception e){ logger.warning("Config failed: "+e.getMessage()); }
+        try { VoltPurPerformance.init(); } catch(Exception e){ logger.warning("Perf init failed: "+e.getMessage()); }
     }
     public static String getVersion(){ return VERSION; }
 
@@ -53,6 +75,9 @@ public class VoltPur {
     public static void loadPluginPro() {
         try {
             java.nio.file.Path p = java.nio.file.Path.of("plugin-pro");
+            if (!java.nio.file.Files.exists(p)) {
+                java.nio.file.Files.createDirectories(p);
+            }
             if (java.nio.file.Files.isDirectory(p)) {
                 org.bukkit.Bukkit.getLogger().info("[VoltPur] Loading plugins from plugin-pro/ folder...");
                 // Try to register via Paper's EntrypointUtil if available
