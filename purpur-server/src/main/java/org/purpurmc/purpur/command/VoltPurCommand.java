@@ -137,20 +137,44 @@ public class VoltPurCommand extends Command {
 
             // Step 3: Download artifact zip
             if (!hasToken) {
-                sender.sendMessage(Component.text("⚠️ No GitHub token configured in voltpur.yml", NamedTextColor.YELLOW));
-                sender.sendMessage(Component.text("Trying public release download...", NamedTextColor.YELLOW));
-                // Try release download
+                sender.sendMessage(Component.text("⚠️ No GitHub token in voltpur.yml, trying public release...", NamedTextColor.YELLOW));
                 try {
-                    String releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
-                    // Actually VoltPur doesn't have releases yet, try Actions artifact without token will fail 401
-                    // Inform user
-                    sender.sendMessage(Component.text("For artifact download, set github-token in voltpur.yml", NamedTextColor.RED));
-                    sender.sendMessage(Component.text("Get token from: https://github.com/settings/tokens (public_repo, read:packages)", NamedTextColor.GRAY));
-                    sender.sendMessage(Component.text("Then set in voltpur.yml: github-token: 'ghp_...'", NamedTextColor.GRAY));
-                    sender.sendMessage(Component.text("Alternatively download manually from: https://github.com/" + repo + "/actions/runs/" + runId, NamedTextColor.AQUA));
+                    // Try latest release (public, no token needed) - works for /vo up without buildId
+                    String releaseUrl;
+                    if (buildId == null || buildId.isEmpty()) {
+                        releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
+                    } else {
+                        // Try to find release by build number: build-{run_number}-{sha} -> we need to list releases
+                        // Fallback: try latest release
+                        releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
+                        sender.sendMessage(Component.text("Build ID specified but no token - using latest release (may differ from build " + runId + ")", NamedTextColor.YELLOW));
+                    }
+                    sender.sendMessage(Component.text("Downloading from release: " + releaseUrl, NamedTextColor.YELLOW));
+                    java.nio.file.Path tempJar = Files.createTempFile("voltpur-release-", ".jar");
+                    downloadFilePublic(releaseUrl, tempJar);
+                    long size = Files.size(tempJar);
+                    if (size < 1000000) { // Less than 1MB, likely HTML error page
+                        throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token for artifact download.");
+                    }
+                    sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
+                    // Backup and replace
+                    java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
+                    java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
+                    if (Files.exists(currentJar)) {
+                        Files.copy(currentJar, backupJar, StandardCopyOption.REPLACE_EXISTING);
+                        sender.sendMessage(Component.text("Backed up to server.jar.old", NamedTextColor.GRAY));
+                    }
+                    Files.copy(tempJar, java.nio.file.Path.of("server.jar"), StandardCopyOption.REPLACE_EXISTING);
+                    sender.sendMessage(Component.text("✅ Updated server.jar from public release (" + (size/1024/1024) + "MB)", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("Restart to apply: /restart", NamedTextColor.YELLOW));
+                    Files.deleteIfExists(tempJar);
                     return;
                 } catch (Exception e) {
-                    throw e;
+                    sender.sendMessage(Component.text("Public release download failed: " + e.getMessage(), NamedTextColor.RED));
+                    sender.sendMessage(Component.text("To use /vo up <buildId> with artifacts, set github-token in voltpur.yml", NamedTextColor.YELLOW));
+                    sender.sendMessage(Component.text("Get token from https://github.com/settings/tokens", NamedTextColor.GRAY));
+                    sender.sendMessage(Component.text("Or download manually: https://github.com/" + repo + "/actions/runs/" + runId, NamedTextColor.AQUA));
+                    return;
                 }
             }
 

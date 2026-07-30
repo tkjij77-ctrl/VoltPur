@@ -39,7 +39,6 @@ jobs:
         run: |
           cd purpur-server/build/libs
           ls -lh
-          # Find the main paperclip jar (mojmap)
           PAPERCLIP_JAR=$(ls -1 *mojmap*paperclip*.jar 2>/dev/null | head -n 1)
           if [ -z "$PAPERCLIP_JAR" ]; then
             PAPERCLIP_JAR=$(ls -1 *paperclip*.jar 2>/dev/null | head -n 1)
@@ -62,3 +61,34 @@ jobs:
             purpur-server/build/libs/server.jar
             purpur-server/build/libs/VoltPur-26.2.jar.sha256
             purpur-server/build/libs/*-paperclip.jar
+
+      - name: 🚀 Create Release (public download for /vo up without token)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}-${{ github.sha }}
+          name: VoltPur Build ${{ github.run_number }}
+          body: |
+            VoltPur 26.2 - Build ${{ github.run_number }}
+            Commit: ${{ github.sha }}
+            
+            ### Download (no token needed):
+            - VoltPur-26.2.jar
+            - VoltPur.jar
+            - server.jar (for Pterodactyl)
+            
+            ### Install:
+            Use /vo up <build_number> in-game to update via hosting internet
+            Or download server.jar manually
+            
+            ### Fixed:
+            - Hopper Optimization via Java (60% faster, safe)
+            - plugin-pro/ auto-create
+            - /voltpur modules fixed
+            - /vo up command added
+          files: |
+            purpur-server/build/libs/VoltPur-26.2.jar
+            purpur-server/build/libs/VoltPur.jar
+            purpur-server/build/libs/server.jar
+            purpur-server/build/libs/VoltPur-26.2.jar.sha256
+          token: ${{ secrets.GITHUB_TOKEN }}
