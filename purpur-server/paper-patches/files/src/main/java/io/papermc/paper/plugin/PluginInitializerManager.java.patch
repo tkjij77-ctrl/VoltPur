@@ -1,28 +1,16 @@
 --- a/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
 +++ b/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
-@@ -96,6 +96,22 @@ public class PluginInitializerManager {
+@@ -96,6 +96,15 @@ public class PluginInitializerManager {
          // Register the default plugin directory
          io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE, pluginSystem.pluginDirectoryPath());
  
-+        // VoltPur start - تحميل plugins تحسين الأداء من مجلد منفصل
-+        // Pterodactyl fix: getParent() can return null if plugins is relative
++        // VoltPur start - plugin-pro folder (Pterodactyl safe, no getParent)
 +        try {
-+            java.nio.file.Path pluginsPath = pluginSystem.pluginDirectoryPath();
-+            java.nio.file.Path parentPath = pluginsPath.getParent();
-+            if (parentPath == null) {
-+                parentPath = pluginsPath.toAbsolutePath().getParent();
-+                if (parentPath == null) parentPath = java.nio.file.Path.of(".");
++            java.nio.file.Path p = java.nio.file.Path.of("plugin-pro");
++            if (java.nio.file.Files.isDirectory(p)) {
++                io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE, p);
 +            }
-+            java.nio.file.Path voltpurPluginProDir = parentPath.resolve("plugin-pro");
-+            if (java.nio.file.Files.exists(voltpurPluginProDir)) {
-+                io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(
-+                    io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE,
-+                    voltpurPluginProDir
-+                );
-+            }
-+        } catch (Exception e) {
-+            LOGGER.warn("VoltPur: Failed to load plugin-pro folder: {}", e.getMessage());
-+        }
++        } catch (Exception ignored) {}
 +        // VoltPur end
 +
          // Register plugins from the flag
