@@ -38,7 +38,7 @@ jobs:
 
       - name: 🏗️ Build Paperclip JAR
         run: |
-          ./gradlew createMojmapPaperclipJar --stacktrace
+          ./gradlew :purpur-server:createPaperclipJar --stacktrace
 
       - name: 📤 Upload JAR
         uses: actions/upload-artifact@v4
@@ -46,4 +46,5 @@ jobs:
           name: VoltPur-26.2-Paperclip
           path: |
             purpur-server/build/libs/*-paperclip.jar
+            purpur-server/build/libs/*.jar
             purpur-server/build/libs/*-mojmap-paperclip.jar
