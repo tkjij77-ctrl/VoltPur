@@ -1,7 +1,3 @@
-# ⚡ VoltPur - Build & Release
-# =============================
-# يبني VoltPur تلقائياً مع كل الـ 21 Patch
-
 name: ⚡ Build VoltPur
 
 on:
@@ -19,13 +15,10 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 🔍 Checkout Purpur 26.2
+      - name: 🔍 Checkout VoltPur (OWN REPO)
         uses: actions/checkout@v4
         with:
-          repository: PurpurMC/Purpur
-          ref: ver/26.2
           fetch-depth: 0
-          path: VoltPur
 
       - name: ☕ Setup Java 25
         uses: actions/setup-java@v4
@@ -38,124 +31,19 @@ jobs:
           git config --global user.email "voltpur@builder.dev"
           git config --global user.name "VoltPur Builder"
 
-      - name: 📦 Apply Upstream Patches
-        working-directory: ./VoltPur
+      - name: 📦 Apply Patches
         run: |
           chmod +x gradlew
-          ./gradlew applyAllPatches
+          ./gradlew applyAllPatches --stacktrace
 
-      - name: ⚡ Apply 21 VoltPur Performance Patches
-        working-directory: ./VoltPur
+      - name: 🏗️ Build Paperclip JAR
         run: |
-          echo "::group::⚡ Applying VoltPur Patches"
-          
-          # 1 - Entity Activation Optimization (Lithium-style)
-          find . -path "*/server/level/ServerChunkCache.java" -exec sed -i \
-            's/public class ServerChunkCache/\/\/ VoltPur: entity activation optimization\npublic class ServerChunkCache/' {} \; 2>/dev/null || true
-          echo "✅ [1/21] Entity Activation"
-          
-          # 2 - Hopper Optimization (Lithium-style)
-          find . -path "*/block/entity/HopperBlockEntity.java" -exec sed -i \
-            's/public class HopperBlockEntity/\/\/ VoltPur: hopper cooldown\npublic class HopperBlockEntity/' {} \; 2>/dev/null || true
-          echo "✅ [2/21] Hopper Optimization"
-          
-          # 3 - Collision Optimization (Lithium-style)
-          find . -path "*/world/entity/Entity.java" -exec sed -i \
-            's/public boolean isColliding/\/\/ VoltPur: collision check\npublic boolean isColliding/' {} \; 2>/dev/null || true
-          echo "✅ [3/21] Collision Optimization"
-          
-          # 4 - Memory Optimization (FerriteCore-style)
-          find . -path "*/world/level/chunk/LevelChunk.java" -exec sed -i \
-            's/private final Map<BlockPos, BlockEntity>/\/\/ VoltPur: compressed storage\nprivate final Map<BlockPos, BlockEntity>/' {} \; 2>/dev/null || true
-          echo "✅ [4/21] Memory Optimization"
-          
-          # 5 - Network Optimization (Krypton-style)
-          find . -path "*/server/network/ServerGamePacketListenerImpl.java" -exec sed -i \
-            's/public void handleMovePlayer/\/\/ VoltPur: packet throttle\npublic void handleMovePlayer/' {} \; 2>/dev/null || true
-          echo "✅ [5/21] Network Optimization"
-          
-          # 6 - Redstone Optimization
-          echo "✅ [6/21] Redstone Optimization (built into Paper)"
-          
-          # 7 - Chunk Loading Optimization
-          find . -path "*/server/level/ChunkMap.java" -exec sed -i \
-            's/public class ChunkMap/\/\/ VoltPur: chunk load limit\npublic class ChunkMap/' {} \; 2>/dev/null || true
-          echo "✅ [7/21] Chunk Loading"
-          
-          # 8 - General Optimization
-          echo "✅ [8/21] General Optimization"
-          
-          # 9 - Entity Limits
-          find . -path "*/server/level/ServerLevel.java" -exec sed -i \
-            's/public class ServerLevel/\/\/ VoltPur: entity caps\npublic class ServerLevel/' {} \; 2>/dev/null || true
-          echo "✅ [9/21] Entity Limits"
-          
-          # 10 - Light Engine
-          find . -path "*/world/level/light/LevelLightEngine.java" -exec sed -i \
-            's/public void tick/\/\/ VoltPur: light budget\npublic void tick/' {} \; 2>/dev/null || true
-          echo "✅ [10/21] Light Engine"
-          
-          # 11 - Connection Stability (keepalive)
-          find . -path "*/server/network/ServerCommonPacketListenerImpl.java" -exec sed -i \
-            's/private static final long KEEPALIVE_LIMIT/\/\/ VoltPur: tunnel keepalive\nprivate static final long KEEPALIVE_LIMIT/' {} \; 2>/dev/null || true
-          echo "✅ [11/21] Connection Stability"
-          
-          # 12 - Bedrock Bridge
-          echo "✅ [12/21] Bedrock Bridge"
-          
-          # 13 - Anti-Exploit
-          find . -name "SimplePluginManager.java" -exec sed -i \
-            's/public class SimplePluginManager/\/\/ VoltPur: rate limits\npublic class SimplePluginManager/' {} \; 2>/dev/null || true
-          echo "✅ [13/21] Anti-Exploit"
-          
-          # 14 - Aikar Flags
-          find . -path "*/craftbukkit/Main.java" -exec sed -i \
-            's/public class Main/\/\/ VoltPur: aikar flags\npublic class Main/' {} \; 2>/dev/null || true
-          echo "✅ [14/21] Aikar Flags"
-          
-          # 15-19 - System patches
-          echo "✅ [15/21] Vanilla Parity"
-          echo "✅ [16/21] Discord Webhook"
-          echo "✅ [17/21] World Backup"
-          echo "✅ [18/21] Auto-Updater"
-          echo "✅ [19/21] Resource Pack HTTP"
-          
-          # 20 - Per-World Plugin
-          echo "✅ [20/21] Per-World Plugin"
-          
-          # 21 - PAdmin WebUI
-          echo "✅ [21/21] PAdmin WebUI"
-          
-          echo "::endgroup::"
-
-      - name: 🔨 Rebuild All Patches
-        working-directory: ./VoltPur
-        run: |
-          ./gradlew rebuildAllServerPatches
-          ./gradlew rebuildPaperServerFeaturePatches
-          ./gradlew rebuildPaperServerFilePatches
-          ./gradlew rebuildPaperApiFeaturePatches
-          ./gradlew rebuildPaperApiFilePatches
-
-      - name: 🏗️ Build JAR
-        working-directory: ./VoltPur
-        run: |
-          ./gradlew createPaperclipJar
+          ./gradlew createMojmapPaperclipJar --stacktrace
 
       - name: 📤 Upload JAR
         uses: actions/upload-artifact@v4
         with:
           name: VoltPur-26.2-Paperclip
           path: |
-            ./VoltPur/purpur-server/build/libs/purpur-server-*-paperclip.jar
-            ./VoltPur/purpur-server/build/libs/purpur-server-*.jar
-
-            
-            ### 🚀 How to Use
-            1. Download the JAR
-            2. Place in your server folder
-            3. Run: `java -jar voltpur-server-26.2.jar --nogui`
-            
-            ### 📁 Optional
-            - Create `plugin-pro/` folder for performance plugins
-          files: ./VoltPur/purpur-server/build/libs/purpur-server-*.jar
+            purpur-server/build/libs/*-paperclip.jar
+            purpur-server/build/libs/*-mojmap-paperclip.jar

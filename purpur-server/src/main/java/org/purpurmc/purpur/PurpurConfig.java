@@ -26,6 +26,7 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.InvalidConfigurationException;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.purpurmc.purpur.command.PurpurCommand;
+import org.purpurmc.purpur.command.VoltPurCommand;
 
 import java.io.File;
 import java.io.IOException;
@@ -73,11 +74,21 @@ public class PurpurConfig {
 
         commands = new HashMap<>();
         commands.put("purpur", new PurpurCommand("purpur"));
+        commands.put("voltpur", new VoltPurCommand("voltpur"));
+        commands.put("padmin", new org.purpurmc.purpur.command.PAdminCommand("padmin"));
 
         version = getInt("config-version", 48);
         set("config-version", 48);
 
         readConfig(PurpurConfig.class, null);
+
+        // VoltPur start - Branding and modules
+        try {
+            VoltPur.init();
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[VoltPur] Init failed: " + e.getMessage());
+        }
+        // VoltPur end
 
         Block.BLOCK_STATE_REGISTRY.forEach(BlockBehaviour.BlockStateBase::initCache);
     }
