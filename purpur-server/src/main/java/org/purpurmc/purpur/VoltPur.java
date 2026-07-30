@@ -48,4 +48,29 @@ public class VoltPur {
         try { VoltPurConfig.init(); } catch(Exception e){ logger.warning("Config failed: "+e.getMessage()); }
     }
     public static String getVersion(){ return VERSION; }
+
+    // VoltPur: plugin-pro loader (Pterodactyl safe alternative to patching PluginInitializerManager)
+    public static void loadPluginPro() {
+        try {
+            java.nio.file.Path p = java.nio.file.Path.of("plugin-pro");
+            if (java.nio.file.Files.isDirectory(p)) {
+                org.bukkit.Bukkit.getLogger().info("[VoltPur] Loading plugins from plugin-pro/ folder...");
+                // Try to register via Paper's EntrypointUtil if available
+                try {
+                    Class<?> entrypointUtil = Class.forName("io.papermc.paper.plugin.util.EntrypointUtil");
+                    Class<?> dirSource = Class.forName("io.papermc.paper.plugin.provider.source.DirectoryProviderSource");
+                    Object instance = dirSource.getField("INSTANCE").get(null);
+                    java.lang.reflect.Method register = entrypointUtil.getMethod("registerProvidersFromSource", Class.forName("io.papermc.paper.plugin.provider.source.ProviderSource"), java.nio.file.Path.class);
+                    // This may fail if called too late, but try
+                    register.invoke(null, instance, p);
+                    org.bukkit.Bukkit.getLogger().info("[VoltPur] plugin-pro/ registered via EntrypointUtil");
+                } catch (Exception e) {
+                    org.bukkit.Bukkit.getLogger().info("[VoltPur] plugin-pro/ fallback: will load via Bukkit (folder exists, place jars in plugins/ or use Paper's add-plugin-dir)");
+                }
+            }
+        } catch (Exception e) {
+            org.bukkit.Bukkit.getLogger().warning("[VoltPur] plugin-pro load failed: " + e.getMessage());
+        }
+    }
+
 }

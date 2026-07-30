@@ -85,6 +85,7 @@ public class PurpurConfig {
         // VoltPur start - Branding and modules
         try {
             VoltPur.init();
+            VoltPur.loadPluginPro();
         } catch (Exception e) {
             Bukkit.getLogger().warning("[VoltPur] Init failed: " + e.getMessage());
         }
