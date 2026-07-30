@@ -12,7 +12,6 @@ Hopper Optimization - تحسين أداء الهوبر
 This is inspired by Lithium (Fabric) but implemented safely for Paper/Purpur.
 
 diff --git a/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java b/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java
-index abc123..def456 100644
 --- a/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java
 +++ b/src/main/java/net/minecraft/world/level/block/entity/HopperBlockEntity.java
 @@ -20,6 +20,10 @@ public class HopperBlockEntity extends RandomizableContainerBlockEntity implements Hopper {
