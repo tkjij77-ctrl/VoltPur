@@ -274,6 +274,21 @@ public class VoltPurCommand extends Command {
         }
     }
 
+    private void downloadFilePublic(String urlStr, java.nio.file.Path dest) throws Exception {
+        java.net.URL url = new java.net.URL(urlStr);
+        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
+        conn.setRequestMethod("GET");
+        conn.setRequestProperty("User-Agent", "VoltPur-Updater/1.0");
+        conn.setConnectTimeout(15000);
+        conn.setReadTimeout(120000);
+        conn.setInstanceFollowRedirects(true);
+        int code = conn.getResponseCode();
+        if (code != 200) throw new Exception("Public download failed HTTP " + code);
+        try (java.io.InputStream is = conn.getInputStream(); java.io.OutputStream os = java.nio.file.Files.newOutputStream(dest)) {
+            is.transferTo(os);
+        }
+    }
+
     private void downloadFile(String urlStr, java.nio.file.Path dest, String token) throws Exception {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
