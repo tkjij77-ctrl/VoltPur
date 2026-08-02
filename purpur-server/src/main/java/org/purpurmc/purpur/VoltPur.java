@@ -5,7 +5,7 @@ import org.bukkit.Bukkit;
 import java.util.logging.Logger;
 
 public class VoltPur {
-    public static final String VERSION = "26.2-VoltPur";
+    public static final String VERSION = "26.2.0-RC1";
     public static final String BRAND = "VoltPur";
     public static final String MC_VERSION = "1.21.10";
     public static final String[] MODULES = {
