@@ -26,6 +26,8 @@ public class VoltPurConfig {
     public static boolean hopperOptimization = true;
     public static int hopperCooldownEmpty = 20;
     public static boolean entityLimiter = true;
+    public static boolean entityActivation = true;
+    public static boolean chunkOptimization = true;
     public static String githubToken = "";
 
     public static void init() {
@@ -56,6 +58,8 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.hopper-optimization", hopperOptimization);
         config.addDefault("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
+        config.addDefault("modules.performance.entity-activation", entityActivation);
+        config.addDefault("modules.performance.chunk-optimization", chunkOptimization);
         config.addDefault("update.github-token", githubToken);
         config.addDefault("update.auto-backup", true);
         config.options().copyDefaults(true);
@@ -76,6 +80,8 @@ public class VoltPurConfig {
         hopperOptimization = config.getBoolean("modules.performance.hopper-optimization", hopperOptimization);
         hopperCooldownEmpty = config.getInt("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
+        entityActivation = config.getBoolean("modules.performance.entity-activation", entityActivation);
+        chunkOptimization = config.getBoolean("modules.performance.chunk-optimization", chunkOptimization);
         githubToken = config.getString("update.github-token", githubToken);
 
 

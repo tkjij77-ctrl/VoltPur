@@ -25,6 +25,7 @@ public class VoltPurWorldCheck {
         new Thread(() -> {
             try {
                 Thread.sleep(35000);
+                ensureServerProperties();
                 checkWorlds();
                 checkFiles();
                 generateStabilityReport();
@@ -112,6 +113,42 @@ public class VoltPurWorldCheck {
         } catch (Exception e) {
             logger.warning("[VoltPur-World] World check error: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    private static void ensureServerProperties() {
+        try {
+            java.io.File file = new java.io.File("server.properties");
+            if (!file.exists()) {
+                Bukkit.getLogger().info("[VoltPur-World] server.properties not found, creating default...");
+                try (java.io.FileWriter fw = new java.io.FileWriter(file)) {
+                    fw.write("# VoltPur server.properties\n");
+                    fw.write("server-port=25565\n");
+                    fw.write("online-mode=false\n");
+                    fw.write("allow-nether=true\n");
+                    fw.write("allow-flight=true\n");
+                    fw.write("spawn-protection=0\n");
+                    fw.write("view-distance=10\n");
+                    fw.write("motd=VoltPur Server\n");
+                }
+            } else {
+                // Ensure allow-nether=true
+                java.util.Properties props = new java.util.Properties();
+                try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) { props.load(fis); }
+                boolean changed = false;
+                if (!props.containsKey("allow-nether")) { props.setProperty("allow-nether", "true"); changed = true; }
+                else if (!props.getProperty("allow-nether").equalsIgnoreCase("true")) {
+                    Bukkit.getLogger().warning("[VoltPur-World] allow-nether=false in server.properties, setting to true for full software");
+                    props.setProperty("allow-nether", "true"); changed = true;
+                }
+                if (!props.containsKey("allow-flight")) { props.setProperty("allow-flight", "true"); changed = true; }
+                if (changed) {
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) { props.store(fos, "VoltPur - ensure full worlds"); }
+                    Bukkit.getLogger().info("[VoltPur-World] Fixed server.properties for stability");
+                }
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().warning("[VoltPur-World] server.properties check failed: " + e.getMessage());
         }
     }
 

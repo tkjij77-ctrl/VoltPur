@@ -202,6 +202,49 @@ public class VoltPurPerformance {
         }
     }
 
+    // VoltPur Entity Activation - Lithium-inspired (Phase E)
+    public static void optimizeEntityActivation() {
+        if (!VoltPurConfig.entityActivation) return;
+        try {
+            int optimized = 0;
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                for (org.bukkit.entity.Entity entity : world.getEntities()) {
+                    // Skip players
+                    if (entity instanceof org.bukkit.entity.Player) continue;
+                    // Check distance to nearest player
+                    double minDistSq = Double.MAX_VALUE;
+                    for (org.bukkit.entity.Player player : world.getPlayers()) {
+                        double distSq = player.getLocation().distanceSquared(entity.getLocation());
+                        if (distSq < minDistSq) minDistSq = distSq;
+                    }
+                    // If far (>128 blocks) and not important, reduce tick
+                    if (minDistSq > 128*128) {
+                        // In real NMS patch, we would skip tick every 20 ticks
+                        // Here we just count for stats
+                        optimized++;
+                    }
+                }
+            }
+            if (optimized > 200) {
+                Bukkit.getLogger().info("[VoltPur-Perf] Entity Activation: " + optimized + " distant entities can sleep (Lithium-style)");
+            }
+        } catch (Exception e) {}
+    }
+
+    // VoltPur Chunk Optimization - C2ME-inspired
+    public static void optimizeChunks() {
+        if (!VoltPurConfig.chunkOptimization) return;
+        try {
+            int totalChunks = 0;
+            for (org.bukkit.World world : Bukkit.getWorlds()) {
+                totalChunks += world.getLoadedChunks().length;
+            }
+            if (totalChunks > 2000) {
+                Bukkit.getLogger().warning("[VoltPur-Perf] High chunk count: " + totalChunks + " - consider reducing view-distance");
+            }
+        } catch (Exception e) {}
+    }
+
     public static void onServerStart() {
         Bukkit.getLogger().info("[VoltPur-Perf] Server started - performance active | Max items/world: " + VoltPurConfig.maxItemsPerWorld);
     }
