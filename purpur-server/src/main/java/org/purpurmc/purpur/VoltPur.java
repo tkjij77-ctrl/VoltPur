@@ -67,6 +67,7 @@ public class VoltPur {
         logger.info("  [VoltPur] PAdmin WebUI: /padmin");
         try { VoltPurConfig.init(); } catch(Exception e){ logger.warning("Config failed: "+e.getMessage()); }
         try { VoltPurPerformance.init(); } catch(Exception e){ logger.warning("Perf init failed: "+e.getMessage()); }
+        try { VoltPurWorldCheck.init(); } catch(Exception e){ logger.warning("WorldCheck init failed: "+e.getMessage()); }
     }
     public static String getVersion(){ return VERSION; }
 

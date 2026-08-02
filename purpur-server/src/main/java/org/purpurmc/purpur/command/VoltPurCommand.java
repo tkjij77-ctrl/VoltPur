@@ -57,6 +57,28 @@ public class VoltPurCommand extends Command {
             sender.sendMessage(Component.text("All modules active and working!", NamedTextColor.GREEN));
             return true;
         }
+        if (args[0].equalsIgnoreCase("status")) {
+            sender.sendMessage(Component.text("=== [VoltPur] Stability Status ===", NamedTextColor.GOLD));
+            sender.sendMessage(Component.text("Version: " + VoltPur.VERSION, NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("Worlds: " + Bukkit.getWorlds().size(), NamedTextColor.AQUA));
+            for (org.bukkit.World w : Bukkit.getWorlds()) {
+                sender.sendMessage(Component.text("- " + w.getName() + " (" + w.getEnvironment() + ") E:" + w.getEntities().size() + " C:" + w.getLoadedChunks().length, NamedTextColor.GRAY));
+            }
+            File[] checks = { new File("server.properties"), new File("bukkit.yml"), new File("purpur.yml"), new File("voltpur.yml"), new File("world"), new File("world_nether"), new File("world_the_end"), new File("plugins"), new File("plugin-pro") };
+            int ok=0; for(File f:checks) if(f.exists()) ok++;
+            sender.sendMessage(Component.text("Files: " + ok + "/" + checks.length + " OK", ok==checks.length?NamedTextColor.GREEN:NamedTextColor.YELLOW));
+            double[] tps = Bukkit.getServer().getTPS();
+            sender.sendMessage(Component.text("TPS: " + String.format("%.2f, %.2f, %.2f", tps[0], tps[1], tps[2]), NamedTextColor.GOLD));
+            sender.sendMessage(Component.text("Status: " + (ok==checks.length && Bukkit.getWorlds().size()>=1 ? "STABLE - Full Software" : "DEGRADED"), NamedTextColor.GREEN));
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("worlds")) {
+            sender.sendMessage(Component.text("Worlds (" + Bukkit.getWorlds().size() + "):", NamedTextColor.GOLD));
+            for (org.bukkit.World w : Bukkit.getWorlds()) {
+                sender.sendMessage(Component.text(w.getName() + " - " + w.getEnvironment() + " - loaded", NamedTextColor.GRAY));
+            }
+            return true;
+        }
         if (args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("voltpur.admin.reload") && !sender.isOp()) {
                 sender.sendMessage(Component.text("No permission - requires voltpur.admin.reload or OP", NamedTextColor.RED));
