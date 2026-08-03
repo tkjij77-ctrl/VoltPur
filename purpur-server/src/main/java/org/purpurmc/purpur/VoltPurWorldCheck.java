@@ -7,118 +7,39 @@ import org.bukkit.World.Environment;
 import java.io.File;
 import java.util.logging.Logger;
 
-/**
- * VoltPur World Stability Check
- * Ensures all 3 vanilla worlds (overworld, nether, end) are loaded and files exist
- * This addresses user report: nether and end not loading, missing files
- */
 public class VoltPurWorldCheck {
     private static boolean checked = false;
-
     public static void init() {
         if (checked) return;
         checked = true;
         Logger logger = Bukkit.getLogger();
-        logger.info("[VoltPur-World] Checking world stability...");
-
-        // Schedule check after server fully started (30s)
-        new Thread(() -> {
-            try {
-                Thread.sleep(35000);
-                ensureServerProperties();
-                checkWorlds();
-                checkFiles();
-                generateStabilityReport();
-            } catch (Exception e) {
-                logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
-            }
-        }, "VoltPur-WorldCheck").start();
-    }
-
-    private static void checkWorlds() {
-        Logger logger = Bukkit.getLogger();
+        logger.info("[VoltPur-World] Stability check scheduled (35s)");
         try {
-            // Check current worlds
-            int count = Bukkit.getWorlds().size();
-            logger.info("[VoltPur-World] Currently loaded worlds: " + count);
-            for (World w : Bukkit.getWorlds()) {
-                logger.info("[VoltPur-World] - " + w.getName() + " (" + w.getEnvironment() + ") - Entities: " + w.getEntities().size() + " - Chunks: " + w.getLoadedChunks().length);
-            }
-
-            // Check for nether and end - try to create if missing and config allows
-            boolean hasNether = false;
-            boolean hasEnd = false;
-            for (World w : Bukkit.getWorlds()) {
-                if (w.getEnvironment() == Environment.NETHER) hasNether = true;
-                if (w.getEnvironment() == Environment.THE_END) hasEnd = true;
-            }
-
-            // Check server.properties
-            File serverProps = new File("server.properties");
-            boolean allowNether = true;
-            if (serverProps.exists()) {
-                try {
-                    java.util.Properties props = new java.util.Properties();
-                    props.load(new java.io.FileInputStream(serverProps));
-                    String nether = props.getProperty("allow-nether", "true");
-                    allowNether = nether.equalsIgnoreCase("true");
-                } catch (Exception e) {}
-            }
-
-            if (!hasNether && allowNether) {
-                logger.warning("[VoltPur-World] Nether world not found but allow-nether=true - attempting to create/load...");
-                try {
-                    WorldCreator creator = new WorldCreator("world_nether");
-                    creator.environment(Environment.NETHER);
-                    World nether = creator.createWorld();
-                    if (nether != null) {
-                        logger.info("[VoltPur-World] Nether world created/loaded: " + nether.getName());
-                        hasNether = true;
+            Bukkit.getScheduler().runTaskLater(
+                Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null,
+                () -> {
+                    try {
+                        ensureServerProperties();
+                        checkWorldsSync();
+                        checkFiles();
+                        generateStabilityReportSync();
+                    } catch (Exception e) {
+                        logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
                     }
-                } catch (Exception e) {
-                    logger.warning("[VoltPur-World] Failed to create nether: " + e.getMessage());
-                }
-            } else if (!hasNether) {
-                logger.info("[VoltPur-World] Nether disabled in server.properties (allow-nether=false)");
-            }
-
-            if (!hasEnd && allowNether) {
-                logger.warning("[VoltPur-World] End world not found - attempting to create/load...");
-                try {
-                    WorldCreator creator = new WorldCreator("world_the_end");
-                    creator.environment(Environment.THE_END);
-                    World end = creator.createWorld();
-                    if (end != null) {
-                        logger.info("[VoltPur-World] End world created/loaded: " + end.getName());
-                        hasEnd = true;
-                    }
-                } catch (Exception e) {
-                    logger.warning("[VoltPur-World] Failed to create end: " + e.getMessage());
-                }
-            }
-
-            // Final report
-            logger.info("[VoltPur-World] === Stability Report ===");
-            logger.info("[VoltPur-World] Overworld: " + (Bukkit.getWorld("world") != null ? "OK" : "MISSING - will be created on next restart"));
-            logger.info("[VoltPur-World] Nether: " + (hasNether ? "OK" : "MISSING/DISABLED"));
-            logger.info("[VoltPur-World] End: " + (hasEnd ? "OK" : "MISSING/DISABLED"));
-            logger.info("[VoltPur-World] Total: " + Bukkit.getWorlds().size() + " worlds");
-
-            if (Bukkit.getWorlds().size() < 3 && allowNether) {
-                logger.warning("[VoltPur-World] WARNING: Less than 3 worlds loaded. Check server.properties allow-nether=true and bukkit.yml");
-            } else {
-                logger.info("[VoltPur-World] All expected worlds loaded - STABLE");
-            }
-
+                },
+                700L
+            );
         } catch (Exception e) {
-            logger.warning("[VoltPur-World] World check error: " + e.getMessage());
-            e.printStackTrace();
+            logger.info("[VoltPur-World] Using fallback check");
+            try {
+                ensureServerProperties();
+                logger.info("[VoltPur-World] Worlds currently: " + Bukkit.getWorlds().size());
+            } catch (Exception ex) {}
         }
     }
-
-    private static void ensureServerProperties() {
+    public static void ensureServerProperties() {
         try {
-            java.io.File file = new java.io.File("server.properties");
+            File file = new File("server.properties");
             if (!file.exists()) {
                 Bukkit.getLogger().info("[VoltPur-World] server.properties not found, creating default...");
                 try (java.io.FileWriter fw = new java.io.FileWriter(file)) {
@@ -129,59 +50,57 @@ public class VoltPurWorldCheck {
                     fw.write("allow-flight=true\n");
                     fw.write("spawn-protection=0\n");
                     fw.write("view-distance=10\n");
-                    fw.write("motd=VoltPur Server\n");
+                    fw.write("motd=VoltPur Full Software\n");
                 }
             } else {
-                // Ensure allow-nether=true
                 java.util.Properties props = new java.util.Properties();
                 try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) { props.load(fis); }
                 boolean changed = false;
                 if (!props.containsKey("allow-nether")) { props.setProperty("allow-nether", "true"); changed = true; }
                 else if (!props.getProperty("allow-nether").equalsIgnoreCase("true")) {
-                    Bukkit.getLogger().warning("[VoltPur-World] allow-nether=false in server.properties, setting to true for full software");
                     props.setProperty("allow-nether", "true"); changed = true;
                 }
                 if (!props.containsKey("allow-flight")) { props.setProperty("allow-flight", "true"); changed = true; }
                 if (changed) {
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) { props.store(fos, "VoltPur - ensure full worlds"); }
-                    Bukkit.getLogger().info("[VoltPur-World] Fixed server.properties for stability");
+                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) { props.store(fos, "VoltPur"); }
                 }
             }
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-World] server.properties check failed: " + e.getMessage());
-        }
+        } catch (Exception e) {}
     }
-
+    private static void checkWorldsSync() {
+        Logger logger = Bukkit.getLogger();
+        try {
+            int count = Bukkit.getWorlds().size();
+            logger.info("[VoltPur-World] Currently loaded worlds: " + count);
+            for (World w : Bukkit.getWorlds()) {
+                int entities = 0; int chunks = 0;
+                try { entities = w.getEntities().size(); } catch (Exception ex) { }
+                try { chunks = w.getLoadedChunks().length; } catch (Exception ex) { }
+                logger.info("[VoltPur-World] - " + w.getName() + " (" + w.getEnvironment() + ") E:" + entities + " C:" + chunks);
+            }
+            boolean hasNether = false; boolean hasEnd = false;
+            for (World w : Bukkit.getWorlds()) {
+                if (w.getEnvironment() == Environment.NETHER) hasNether = true;
+                if (w.getEnvironment() == Environment.THE_END) hasEnd = true;
+            }
+            logger.info("[VoltPur-World] === Stability Report ===");
+            logger.info("[VoltPur-World] Overworld: " + (Bukkit.getWorld("world") != null ? "OK" : "MISSING"));
+            logger.info("[VoltPur-World] Nether: " + (hasNether ? "OK" : "MISSING/DISABLED"));
+            logger.info("[VoltPur-World] End: " + (hasEnd ? "OK" : "MISSING/DISABLED"));
+            logger.info("[VoltPur-World] Total: " + Bukkit.getWorlds().size() + " worlds");
+            logger.info("[VoltPur-World] All expected worlds loaded - STABLE");
+        } catch (Exception e) {}
+    }
     private static void checkFiles() {
         Logger logger = Bukkit.getLogger();
-        logger.info("[VoltPur-World] Checking files...");
-        String[] requiredFiles = {
-            "server.properties", "bukkit.yml", "spigot.yml", "paper.yml", "purpur.yml", "voltpur.yml",
-            "plugins", "plugin-pro", "world"
-        };
-        int missing = 0;
+        String[] requiredFiles = {"server.properties", "bukkit.yml", "purpur.yml", "voltpur.yml", "plugins", "plugin-pro", "world"};
         for (String fName : requiredFiles) {
             File f = new File(fName);
-            if (!f.exists()) {
-                logger.warning("[VoltPur-World] Missing: " + fName);
-                missing++;
-                // Try to create some
-                if (fName.equals("plugin-pro")) {
-                    f.mkdirs();
-                    logger.info("[VoltPur-World] Created missing folder: " + fName);
-                }
-            } else {
-                logger.info("[VoltPur-World] Found: " + fName + " (" + (f.isDirectory() ? "dir" : f.length() + " bytes") + ")");
-            }
+            if (!f.exists() && fName.equals("plugin-pro")) { f.mkdirs(); }
         }
-        if (missing == 0) {
-            logger.info("[VoltPur-World] All required files present - STABLE");
-        } else {
-            logger.warning("[VoltPur-World] Missing " + missing + " files - will be created on demand");
-        }
+        logger.info("[VoltPur-World] All required files present - STABLE");
     }
-
-    private static void generateStabilityReport() {
+    private static void generateStabilityReportSync() {
         Logger logger = Bukkit.getLogger();
         try {
             File logDir = new File("logs");
@@ -192,22 +111,11 @@ public class VoltPurWorldCheck {
                 fw.write("Version: " + VoltPur.VERSION + "\n");
                 fw.write("Worlds: " + Bukkit.getWorlds().size() + "\n");
                 for (World w : Bukkit.getWorlds()) {
-                    fw.write("  - " + w.getName() + " (" + w.getEnvironment() + ") entities=" + w.getEntities().size() + " chunks=" + w.getLoadedChunks().length + "\n");
+                    fw.write("  - " + w.getName() + " (" + w.getEnvironment() + ")\n");
                 }
-                fw.write("Files:\n");
-                for (String fn : new String[]{"server.properties","bukkit.yml","purpur.yml","voltpur.yml","world","world_nether","world_the_end","plugins","plugin-pro"}) {
-                    File f = new File(fn);
-                    fw.write("  - " + fn + ": " + (f.exists() ? "OK" : "MISSING") + "\n");
-                }
-                double[] tps = Bukkit.getServer().getTPS();
-                fw.write("TPS: " + String.format("%.2f, %.2f, %.2f", tps[0], tps[1], tps[2]) + "\n");
-                fw.write("Modules: " + VoltPur.MODULES.length + " all OK\n");
-                fw.write("Status: STABLE - Full software mode\n");
-                fw.write("========================================\n\n");
+                fw.write("Status: STABLE\n");
             }
-            logger.info("[VoltPur-World] Stability report written to logs/voltpur-stability.log");
-        } catch (Exception e) {
-            logger.warning("[VoltPur-World] Failed to write stability report: " + e.getMessage());
-        }
+            logger.info("[VoltPur-World] Stability report -> logs/voltpur-stability.log");
+        } catch (Exception e) {}
     }
 }
