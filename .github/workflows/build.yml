@@ -2,7 +2,7 @@ name: ⚡ Build VoltPur
 
 on:
   push:
-    branches: [ ver/26.2 ]
+    branches: [ ver/26.2, voltcore-phase1 ]
   workflow_dispatch:
 
 permissions:
@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    
+
     steps:
       - name: 🔍 Checkout VoltPur
         uses: actions/checkout@v4
@@ -66,7 +66,7 @@ jobs:
             purpur-server/build/libs/*-paperclip.jar
 
       - name: 🚀 Create Release (public download for /vo up without token)
-        if: success()
+        if: success() && github.ref == 'refs/heads/ver/26.2'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}-${{ github.sha }}
@@ -74,21 +74,23 @@ jobs:
           body: |
             VoltPur 26.2 - Build ${{ github.run_number }}
             Commit: ${{ github.sha }}
-            
+
             ### Download (no token needed):
             - VoltPur-26.2.jar
             - VoltPur.jar
             - server.jar (for Pterodactyl)
-            
+
             ### Install:
             Use /vo up <build_number> in-game to update via hosting internet
             Or download server.jar manually
-            
-            ### Fixed:
-            - Hopper Optimization via Java (60% faster, safe)
-            - plugin-pro/ auto-create
-            - /voltpur modules fixed
-            - /vo up command added
+
+            ### What's real (VoltCore, honest):
+            - /voltpur modules : honest status (8/24 ACTIVE, rest PARTIAL/PLANNED)
+            - /voltpur benchmark: live measured TPS/MSPT/entities/chunks/heap/hoppers
+            - /voltpur hardware : device compatibility + recommended JVM flags
+            - ItemLimiter / TPSMonitor / ChunkCheck : wired and running
+            - plugin-pro/ loader patch (loads perf plugins first)
+            - Hopper sleep : opt-in config + NMS snippet (docs/HOPPER_SNIPPET.md)
           files: |
             purpur-server/build/libs/VoltPur-26.2.jar
             purpur-server/build/libs/VoltPur.jar

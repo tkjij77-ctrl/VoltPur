@@ -22,6 +22,48 @@
 
 ---
 
+---
+
+## 🧠 VoltCore — ماذا يفعل هذا السوفت وير فعلاً (بصراحة)
+
+> هذه النسخة مبنية على **Purpur 26.2** (وهو Fork من Paper). Paper/Purpur يحتويان أصلاً على تحسينات أداء حقيقية (Entity Activation Range، Chunk System، Hopper المعتمد، G1GC). **VoltCore يضيف طبقة صدق + أدوات تحقق + تحسينات آمنة قابلة للتفعيل.**
+
+### ✅ موديولات نشطة ووظيفية (ACTIVE) — قابلة للتحقق
+| الموديول | ماذا يفعل | كيف تتحقق |
+|----------|-----------|-----------|
+| **HardwareDetection** | يكشف CPU/RAM/العمارة/Java ويرشّح أعلام JVM | `/voltpur hardware` |
+| **HardwareAutoTune** | (opt-in) يضبط `server.properties` حسب العتاد | `voltpur.yml` |
+| **ItemLimiter** | يحدّ العناصر المرمية فوق الحد | `/voltpur benchmark` |
+| **TPSMonitor** | يحذّر عند انخفاض TPS | اللوج |
+| **WorldStability** | يفحص/ينشئ العوالم الثلاثة | `/voltpur status` |
+| **PterodactylFix** | استقرار على لوحات الاستضافة | الإقلاع |
+| **Updater** | تحديث ذاتي `/vo up` | `/vo up` |
+| **PAdminWebUI** | واجهة تحكم ويب | `/padmin` |
+
+### 🟠 جزئية / 🟡 مخطط لها (مذكورة بصدق)
+- `EntityActivation` → **PARTIAL** (نشطة أصلاً عبر Paper EAR؛ لا patch مكرر).
+- `HopperOptimization` → **PLANNED** (خيار نوم آمن opt-in + مقتطف NMS جاهز في `docs/HOPPER_SNIPPET.md`).
+- Collision/Memory/Network/Redstone/Chunk/Light → **PLANNED** (لم تُطبَّق بعد؛ لا ندّعيها).
+
+### 📊 الأرقام تُقاس لا تُدّعى
+كل رقم أداء في هذا المشروع يجب أن يخرج من:
+```
+/voltpur benchmark
+```
+الذي يقيس **TPS / MSPT / الكيانات / الكانكس / الـ Heap / الهوبرات** حيّاً ويكتب `logs/voltpur-benchmark.txt`. **لا نكتب نسباً وهمية بلا قياس.**
+
+### 📁 البلاجنز
+- البلاجنز تُحمَّل من مجلد `plugins/` (القياسي).
+- مجلد `plugin-pro/` (اختياري) يُسجَّل **قبل** `plugins/` عبر patch paperweight، فتُحمَّل بلاجنز الأداء أولاً.
+- أدوات أداء موصى بها: **Spark** (تشخيص)، **ClearLag** (تنظيف).
+
+### 🖥️ طريقة التشغيل (Pterodactyl)
+```
+java -Xms128M -Xmx{{SERVER_MEMORY}}M --add-modules=jdk.incubator.vector -Dterminal.jline=false -Dterminal.ansi=true -jar server.jar --nogui
+```
+> أضف `--add-modules=jdk.incubator.vector` لتفعيل SIMD على المعالجات الداعمة.
+
+---
 ## 📖 يعني ايه VoltPur؟
 
 **VoltPur** هو Fork من **PurpurMC/Purpur** (اللي هو Fork من Paper). الهدف: سيرفر ماينكرافت **سريع، ثابت، ويشتغل في أي مكان** (Pterodactyl, Oracle, VPS, حتى HuggingFace).
