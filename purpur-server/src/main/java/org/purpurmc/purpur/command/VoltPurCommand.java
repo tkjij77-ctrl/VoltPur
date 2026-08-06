@@ -143,14 +143,34 @@ public class VoltPurCommand extends Command {
             sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
             sender.sendMessage(Component.text(buildId != null ? "Build ID: " + buildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
-            Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null, () -> {
-                try {
-                    doUpdate(sender, buildId);
-                } catch (Exception e) {
-                    sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
-                    e.printStackTrace();
+            // Run async via Paper's AsyncScheduler (accepts null plugin, so it works
+            // even on a server with NO plugins).
+            try {
+                io.papermc.paper.threadedregions.scheduler.AsyncScheduler async =
+                        Bukkit.getAsyncScheduler();
+                if (async != null) {
+                    async.runNow(null, task -> {
+                        try {
+                            doUpdate(sender, buildId);
+                        } catch (Exception e) {
+                            sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
+                            e.printStackTrace();
+                        }
+                    });
+                } else {
+                    // Fallback: run on a worker thread (network only, safe).
+                    new Thread(() -> {
+                        try {
+                            doUpdate(sender, buildId);
+                        } catch (Exception e) {
+                            sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
+                            e.printStackTrace();
+                        }
+                    }, "VoltPur-Updater").start();
                 }
-            });
+            } catch (Throwable e) {
+                sender.sendMessage(Component.text("Update scheduling failed: " + e.getMessage(), NamedTextColor.RED));
+            }
             return true;
         }
         sender.sendMessage(Component.text("Usage: "+usageMessage, NamedTextColor.RED));
