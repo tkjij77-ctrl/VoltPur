@@ -15,28 +15,15 @@ public class VoltPurWorldCheck {
         Logger logger = Bukkit.getLogger();
         logger.info("[VoltPur-World] Stability check scheduled");
 
-        // VoltPur: schedule via a Timer that waits until a plugin + worlds are
-        // available. Calling runTaskLater at init time fails because VoltPur.init()
-        // runs before any plugin is loaded (Bukkit.getPluginManager().getPlugins()[0]
-        // is null), which previously caused the "Using fallback check / Worlds: 0" bug.
-        new Thread(() -> {
-            try {
-                org.bukkit.plugin.Plugin plugin = null;
-                for (int i = 0; i < 20 && plugin == null; i++) {
-                    try {
-                        org.bukkit.plugin.Plugin[] pl = Bukkit.getPluginManager().getPlugins();
-                        if (pl.length > 0) plugin = pl[0];
-                    } catch (Exception ignored) {}
-                    if (plugin == null) Thread.sleep(3000);
-                }
-                if (plugin == null) {
-                    // No plugin ever became available; do a safe direct check later.
-                    Thread.sleep(35000);
-                    safeRun();
-                    return;
-                }
-                final org.bukkit.plugin.Plugin p = plugin;
-                Bukkit.getScheduler().runTaskLater(p, () -> {
+        // VoltPur: schedule the world check on Paper's GlobalRegionScheduler, which
+        // runs on the main thread and accepts a null plugin (works on servers with
+        // no plugins). A custom thread here caused "main thread check" AsyncCatcher
+        // errors when reading world entities.
+        try {
+            io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler sched =
+                    Bukkit.getGlobalRegionScheduler();
+            if (sched != null) {
+                sched.runDelayed(null, task -> {
                     try {
                         ensureServerProperties();
                         checkWorldsSync();
@@ -45,21 +32,17 @@ public class VoltPurWorldCheck {
                     } catch (Exception e) {
                         logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
                     }
-                }, 700L);
-            } catch (Exception e) {
-                logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
+                }, 200L); // ~10s after server start
+            } else {
+                // Fallback: run once after a delay on a worker thread, but ONLY
+                // touch server.properties (no world access) to avoid async errors.
+                new Thread(() -> {
+                    try { Thread.sleep(35000); ensureServerProperties(); }
+                    catch (Exception ignored) {}
+                }, "VoltPur-World-Fallback").start();
             }
-        }, "VoltPur-World-Init").start();
-    }
-
-    private static void safeRun() {
-        try {
-            ensureServerProperties();
-            checkWorldsSync();
-            checkFiles();
-            generateStabilityReportSync();
         } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-World] safeRun failed: " + e.getMessage());
+            logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
         }
     }
     public static void ensureServerProperties() {
