@@ -13,11 +13,30 @@ public class VoltPurWorldCheck {
         if (checked) return;
         checked = true;
         Logger logger = Bukkit.getLogger();
-        logger.info("[VoltPur-World] Stability check scheduled (35s)");
-        try {
-            Bukkit.getScheduler().runTaskLater(
-                Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null,
-                () -> {
+        logger.info("[VoltPur-World] Stability check scheduled");
+
+        // VoltPur: schedule via a Timer that waits until a plugin + worlds are
+        // available. Calling runTaskLater at init time fails because VoltPur.init()
+        // runs before any plugin is loaded (Bukkit.getPluginManager().getPlugins()[0]
+        // is null), which previously caused the "Using fallback check / Worlds: 0" bug.
+        new Thread(() -> {
+            try {
+                org.bukkit.plugin.Plugin plugin = null;
+                for (int i = 0; i < 20 && plugin == null; i++) {
+                    try {
+                        org.bukkit.plugin.Plugin[] pl = Bukkit.getPluginManager().getPlugins();
+                        if (pl.length > 0) plugin = pl[0];
+                    } catch (Exception ignored) {}
+                    if (plugin == null) Thread.sleep(3000);
+                }
+                if (plugin == null) {
+                    // No plugin ever became available; do a safe direct check later.
+                    Thread.sleep(35000);
+                    safeRun();
+                    return;
+                }
+                final org.bukkit.plugin.Plugin p = plugin;
+                Bukkit.getScheduler().runTaskLater(p, () -> {
                     try {
                         ensureServerProperties();
                         checkWorldsSync();
@@ -26,15 +45,21 @@ public class VoltPurWorldCheck {
                     } catch (Exception e) {
                         logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
                     }
-                },
-                700L
-            );
+                }, 700L);
+            } catch (Exception e) {
+                logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
+            }
+        }, "VoltPur-World-Init").start();
+    }
+
+    private static void safeRun() {
+        try {
+            ensureServerProperties();
+            checkWorldsSync();
+            checkFiles();
+            generateStabilityReportSync();
         } catch (Exception e) {
-            logger.info("[VoltPur-World] Using fallback check");
-            try {
-                ensureServerProperties();
-                logger.info("[VoltPur-World] Worlds currently: " + Bukkit.getWorlds().size());
-            } catch (Exception ex) {}
+            Bukkit.getLogger().warning("[VoltPur-World] safeRun failed: " + e.getMessage());
         }
     }
     public static void ensureServerProperties() {

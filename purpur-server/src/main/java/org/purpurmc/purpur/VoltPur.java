@@ -51,11 +51,9 @@ public class VoltPur {
     public static String getVersion() { return VERSION; }
 
     /**
-     * Honest handling of the plugin-pro/ concept.
-     * Paper has no runtime API to register a second plugin folder. Until a real
-     * patch (Phase 2, F8) adds it as a plugin source, we do NOT claim it loads.
-     * We simply ensure the folder exists and tell the admin to place jars in
-     * plugins/ (the folder Paper actually loads).
+     * plugin-pro/ is registered as a real plugin source by the paperweight patch
+     * (paper-patches/files/.../PluginInitializerManager.java.patch), which loads it
+     * BEFORE plugins/. Here we only ensure the folder exists so it is ready.
      */
     public static void ensurePluginProFolder() {
         try {
@@ -65,10 +63,9 @@ public class VoltPur {
                 java.io.File readme = new java.io.File(folder, "README.txt");
                 if (!readme.exists()) {
                     try (java.io.FileWriter fw = new java.io.FileWriter(readme)) {
-                        fw.write("VoltPur plugin-pro/ - ORGANISATIONAL folder only (Phase 1).\n");
-                        fw.write("Paper loads plugins ONLY from the plugins/ folder.\n");
-                        fw.write("This folder is for organising/backing up performance plugin jars.\n");
-                        fw.write("Place jars you want loaded into plugins/ instead.\n");
+                        fw.write("VoltPur plugin-pro/ - loads BEFORE plugins/ (via paperweight patch).\n");
+                        fw.write("Put performance plugins (Spark, ClearLag) here to load first.\n");
+                        fw.write("Regular gameplay plugins still go in plugins/.\n");
                     }
                 }
             }
@@ -79,12 +76,11 @@ public class VoltPur {
 
     /**
      * Backwards-compatible wrapper (called by PurpurConfig.init()).
-     * In Phase 1 this only ensures the folder exists - it does NOT claim to load
-     * plugins. Real plugin-pro loading is a Phase 2 patch (F8).
+     * plugin-pro/ is loaded by the paperweight patch during PluginInitializerManager.load(),
+     * before plugins/. This method only ensures the folder exists (no duplicate loading).
      */
     public static void loadPluginPro() {
         ensurePluginProFolder();
-        Bukkit.getLogger().info("[VoltPur] plugin-pro/ is an organisational folder (Phase 1)."
-                + " Plugins are loaded from plugins/ by Paper.");
+        Bukkit.getLogger().info("[VoltPur] plugin-pro/ registered as a plugin source (loads before plugins/) via paperweight patch.");
     }
 }
