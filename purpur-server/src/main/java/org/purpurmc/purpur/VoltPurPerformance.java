@@ -26,12 +26,14 @@ public class VoltPurPerformance {
         Logger logger = Bukkit.getLogger();
         logger.info("[VoltPur-Perf] Initializing real performance tasks...");
 
-        // Wait for server + a plugin to be available (for the scheduler).
+        // Wait for a plugin to be available so we can use the sync scheduler
+        // (which runs on the main thread). NEVER use java.util.Timer: it runs on a
+        // non-main thread and world access (getEntities) throws AsyncCatcher errors.
         new Thread(() -> {
             try {
                 Thread.sleep(20000);
                 Plugin plugin = null;
-                for (int i = 0; i < 10 && plugin == null; i++) {
+                for (int i = 0; i < 20 && plugin == null; i++) {
                     try {
                         Plugin[] plugins = Bukkit.getPluginManager().getPlugins();
                         if (plugins.length > 0) plugin = plugins[0];
@@ -39,8 +41,10 @@ public class VoltPurPerformance {
                     if (plugin == null) Thread.sleep(5000);
                 }
                 if (plugin == null) {
-                    logger.info("[VoltPur-Perf] No plugin found, using fallback timer");
-                    startWithGlobalScheduler();
+                    // No plugin available: use Paper's GlobalRegionScheduler which
+                    // schedules on the main thread and is safe for world access.
+                    logger.info("[VoltPur-Perf] No plugin found - using Paper GlobalRegionScheduler");
+                    startWithRegionScheduler();
                     return;
                 }
                 final Plugin p = plugin;
@@ -53,20 +57,30 @@ public class VoltPurPerformance {
         logger.info("[VoltPur-Perf] Init thread started - tasks activate shortly after startup");
     }
 
-    private static void startWithGlobalScheduler() {
+    /**
+     * Schedules repeating tasks on Paper's GlobalRegionScheduler (main thread).
+     * This avoids the async world-access errors that java.util.Timer caused.
+     * If the GlobalRegionScheduler is unavailable, tasks simply do not auto-run
+     * (they can still be triggered by /voltpur benchmark on the main thread).
+     */
+    private static void startWithRegionScheduler() {
         try {
-            java.util.Timer timer = new java.util.Timer(true);
-            timer.scheduleAtFixedRate(new java.util.TimerTask() {
-                @Override
-                public void run() {
-                    try {
-                        performCleanup();
-                        checkChunks();
-                    } catch (Exception ignored) {}
-                }
-            }, 300000, 300000); // every 5 min
+            Object scheduler = Bukkit.class.getMethod("getGlobalRegionScheduler").invoke(null);
+            java.lang.reflect.Method runAtFixedRate = scheduler.getClass().getMethod(
+                    "runAtFixedRate",
+                    org.bukkit.plugin.Plugin.class,
+                    java.util.function.Consumer.class,
+                    long.class, long.class);
+            runAtFixedRate.invoke(scheduler, (org.bukkit.plugin.Plugin) null,
+                    (java.util.function.Consumer) task -> {
+                        try { if (VoltPurConfig.performanceEnabled) performCleanup(); } catch (Exception ignored) {}
+                        try { checkChunks(); } catch (Exception ignored) {}
+                    },
+                    12000L, 6000L);
+            Bukkit.getLogger().info("[VoltPur-Perf] GlobalRegionScheduler tasks started (main thread, safe).");
         } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-Perf] Fallback timer failed: " + e.getMessage());
+            Bukkit.getLogger().warning("[VoltPur-Perf] Region scheduler unavailable: " + e.getMessage()
+                    + " - auto cleanup disabled (no async errors). Use /voltpur benchmark to run manually.");
         }
     }
 
