@@ -1,4 +1,3 @@
-
 package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
@@ -9,7 +8,14 @@ import org.bukkit.plugin.Plugin;
 import java.util.logging.Logger;
 
 /**
- * VoltPur Performance - Real performance improvements via Bukkit API
+ * VoltPur Performance - REAL performance tasks that are actually wired to run.
+ *
+ * Phase 1 keeps every effect honest:
+ *   - ItemLimiter : removes excess dropped items (real, measurable).
+ *   - TPSMonitor  : logs when TPS is low (real).
+ *   - ChunkCheck  : warns on excessive loaded chunks (real, cheap).
+ *   - HopperOptimization / EntityActivation are NOT claimed here (needs NMS,
+ *     Phase 2). They are reported as PLANNED in /voltpur modules.
  */
 public class VoltPurPerformance {
     private static boolean initialized = false;
@@ -18,234 +24,153 @@ public class VoltPurPerformance {
         if (initialized) return;
         initialized = true;
         Logger logger = Bukkit.getLogger();
-        logger.info("[VoltPur-Perf] Initializing real performance improvements...");
+        logger.info("[VoltPur-Perf] Initializing real performance tasks...");
 
-        // Start task in new thread that waits for server and plugins to be ready
+        // Wait for server + a plugin to be available (for the scheduler).
         new Thread(() -> {
             try {
-                Thread.sleep(30000); // Wait 30 seconds for server to fully start
+                Thread.sleep(20000);
                 Plugin plugin = null;
-                int attempts = 0;
-                while (plugin == null && attempts < 10) {
+                for (int i = 0; i < 10 && plugin == null; i++) {
                     try {
                         Plugin[] plugins = Bukkit.getPluginManager().getPlugins();
-                        if (plugins.length > 0) {
-                            plugin = plugins[0];
-                            break;
-                        }
-                    } catch (Exception e) {}
-                    try { Thread.sleep(5000); } catch (Exception e) {}
-                    attempts++;
+                        if (plugins.length > 0) plugin = plugins[0];
+                    } catch (Exception ignored) {}
+                    if (plugin == null) Thread.sleep(5000);
                 }
                 if (plugin == null) {
-                    // Fallback: try to get any plugin, or use first world
-                    logger.info("[VoltPur-Perf] No plugin found yet, using delayed init");
-                    Bukkit.getScheduler().runTaskLater(Bukkit.getWorlds().isEmpty() ? null : Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null, () -> startPerformanceTasksInternal(), 100L);
+                    logger.info("[VoltPur-Perf] No plugin found, using fallback timer");
+                    startWithGlobalScheduler();
                     return;
                 }
                 final Plugin p = plugin;
-                // Now schedule repeating tasks using the found plugin
-                Bukkit.getScheduler().runTask(p, () -> startPerformanceTasksInternalWithPlugin(p));
+                Bukkit.getScheduler().runTask(p, () -> startRepeatingTasks(p));
             } catch (Exception e) {
                 logger.warning("[VoltPur-Perf] Init thread failed: " + e.getMessage());
             }
         }, "VoltPur-Perf-Init").start();
 
-        logger.info("[VoltPur-Perf] Performance init thread started - will activate after 30s");
-    }
-
-    private static void startPerformanceTasksInternal() {
-        // Try to find plugin again
-        try {
-            Plugin[] plugins = Bukkit.getPluginManager().getPlugins();
-            if (plugins.length > 0) {
-                startPerformanceTasksInternalWithPlugin(plugins[0]);
-            } else {
-                Bukkit.getLogger().info("[VoltPur-Perf] No plugins found for scheduler, using global scheduler");
-                startWithGlobalScheduler();
-            }
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-Perf] Failed to start tasks: " + e.getMessage());
-        }
+        logger.info("[VoltPur-Perf] Init thread started - tasks activate shortly after startup");
     }
 
     private static void startWithGlobalScheduler() {
         try {
-            // Try Paper's GlobalRegionScheduler which may not need plugin in newer versions
-            // Fallback to simple timer
-            Bukkit.getLogger().info("[VoltPur-Perf] Using fallback timer for performance tasks");
             java.util.Timer timer = new java.util.Timer(true);
             timer.scheduleAtFixedRate(new java.util.TimerTask() {
                 @Override
                 public void run() {
                     try {
-                        // Run sync via global scheduler if available
-                        Bukkit.getScheduler().runTask(Bukkit.getPluginManager().getPlugins()[0], () -> performCleanup());
-                    } catch (Exception e) {
-                        try {
-                            // Direct cleanup if scheduler fails
-                            performCleanup();
-                        } catch (Exception ex) {}
-                    }
+                        performCleanup();
+                        checkChunks();
+                    } catch (Exception ignored) {}
                 }
-            }, 300000, 300000); // Every 5 minutes
+            }, 300000, 300000); // every 5 min
         } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-Perf] Global scheduler failed: " + e.getMessage());
+            Bukkit.getLogger().warning("[VoltPur-Perf] Fallback timer failed: " + e.getMessage());
         }
     }
 
-    private static void startPerformanceTasksInternalWithPlugin(Plugin plugin) {
+    /** The single repeating task loop that does the REAL work. */
+    private static void startRepeatingTasks(Plugin plugin) {
         Logger logger = Bukkit.getLogger();
-        if (plugin == null) {
-            startWithGlobalScheduler();
-            return;
-        }
 
-        // Task 1: Entity and item cleanup every 5 minutes
+        // Every 5 minutes: item cleanup (real) + chunk warning (real).
         Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
-            try {
-                performCleanup();
-            } catch (Exception e) {}
+            try { if (VoltPurConfig.performanceEnabled) performCleanup(); } catch (Exception ignored) {}
+            try { checkChunks(); } catch (Exception ignored) {}
         }, 6000L, 6000L);
 
-        // Task 2: TPS monitor every 10 minutes
+        // Every 1 minute: TPS monitor (real).
         Bukkit.getScheduler().scheduleSyncRepeatingTask(plugin, () -> {
             try {
                 if (!VoltPurConfig.tpsMonitor) return;
                 double[] tps = Bukkit.getServer().getTPS();
                 if (tps[0] < 18.0) {
-                    logger.warning("[VoltPur-Perf] Low TPS: " + String.format("%.2f", tps[0]) + " - consider reducing entities/redstone/hoppers");
+                    logger.warning("[VoltPur-Perf] Low TPS: " + String.format("%.2f", tps[0])
+                            + " - run /voltpur benchmark and review view-distance / heavy plugins");
                 }
-            } catch (Exception e) {}
-        }, 12000L, 12000L);
+            } catch (Exception ignored) {}
+        }, 1200L, 1200L);
 
-        logger.info("[VoltPur-Perf] Performance tasks started with plugin " + plugin.getName() + " - item limit: " + VoltPurConfig.maxItemsPerWorld + " per world");
+        logger.info("[VoltPur-Perf] Real tasks started | item limit: "
+                + VoltPurConfig.maxItemsPerWorld + "/world | benchmark via /voltpur benchmark");
     }
 
-    // VoltPur Hopper Optimization - Phase 1: Safe sleep for empty hoppers
-    private static void optimizeHoppers() {
-        if (!VoltPurConfig.hopperOptimization) return;
-        try {
-            int optimized = 0;
-            for (org.bukkit.World world : Bukkit.getWorlds()) {
-                // Only check loaded chunks with tile entities
-                for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
-                    if (!chunk.isLoaded()) continue;
-                    // Get tile entities via NMS if possible, fallback to Bukkit
-                    try {
-                        // Use CraftWorld to get handle
-                        Object craftWorld = chunk.getWorld();
-                        // Try to get block entities via reflection
-                        // For now, use simple check: count hoppers in chunk
-                        // Real optimization would use NMS: ((CraftWorld)world).getHandle().getBlockEntity(pos)
-                        // We'll implement basic version: if chunk has less than 5 hoppers, skip (performance)
-                        org.bukkit.block.BlockState[] tileEntities = chunk.getTileEntities();
-                        for (org.bukkit.block.BlockState state : tileEntities) {
-                            if (state instanceof org.bukkit.block.Hopper) {
-                                org.bukkit.block.Hopper hopper = (org.bukkit.block.Hopper) state;
-                                // Check if empty and no inventory above
-                                if (hopper.getInventory().isEmpty()) {
-                                    // Check if inventory above exists
-                                    org.bukkit.block.Block above = hopper.getBlock().getRelative(org.bukkit.block.BlockFace.UP);
-                                    boolean hasInventoryAbove = (above.getState() instanceof org.bukkit.inventory.InventoryHolder);
-                                    boolean hasSignal = hopper.getBlock().isBlockPowered() || hopper.getBlock().isBlockIndirectlyPowered();
-                                    if (!hasInventoryAbove && !hasSignal) {
-                                        // Safe to optimize: this hopper is empty and has nothing to pull
-                                        optimized++;
-                                        // Note: Real cooldown setting requires NMS, but we log for now
-                                        // In future NMS patch, we would set hopper.setCooldown(20)
-                                    }
-                                }
-                            }
-                        }
-                    } catch (Exception e) {
-                        // Skip chunk on error
-                    }
-                }
-            }
-            if (optimized > 0 && Bukkit.getLogger() != null) {
-                // Only log if significant
-                if (optimized > 100) {
-                    Bukkit.getLogger().info("[VoltPur-Perf] Hopper optimization: " + optimized + " empty hoppers can sleep (saving ~" + (optimized*0.8) + "ms/tick)");
-                }
-            }
-        } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur-Perf] Hopper opt failed: " + e.getMessage());
-        }
-    }
-
-    private static void performCleanup() {
-        if (!VoltPurConfig.performanceEnabled) return;
+    /**
+     * Real item limiter: removes dropped items above the per-world cap.
+     * Returns number removed (for benchmark / logging).
+     */
+    public static int performCleanup() {
+        if (!VoltPurConfig.performanceEnabled) return 0;
         Logger logger = Bukkit.getLogger();
-        int totalEntities = 0;
         int removedItems = 0;
         for (World world : Bukkit.getWorlds()) {
             int itemsInWorld = 0;
-            for (Entity ent : world.getEntities()) {
-                totalEntities++;
-                if (ent instanceof Item) itemsInWorld++;
-            }
+            try {
+                for (Entity ent : world.getEntities()) {
+                    if (ent instanceof Item) itemsInWorld++;
+                }
+            } catch (Exception ignored) { continue; }
             if (itemsInWorld > VoltPurConfig.maxItemsPerWorld) {
                 int toRemove = itemsInWorld - VoltPurConfig.maxItemsPerWorld;
                 for (Entity ent : world.getEntities()) {
                     if (toRemove <= 0) break;
                     if (ent instanceof Item) {
-                        ent.remove();
-                        removedItems++;
-                        toRemove--;
+                        ent.remove(); removedItems++; toRemove--;
                     }
                 }
             }
         }
         if (removedItems > 0) {
-            logger.info("[VoltPur-Perf] Cleared " + removedItems + " dropped items (limit: " + VoltPurConfig.maxItemsPerWorld + " per world)");
+            logger.info("[VoltPur-Perf] Removed " + removedItems + " excess dropped items (cap "
+                    + VoltPurConfig.maxItemsPerWorld + "/world)");
         }
+        return removedItems;
     }
 
-    // VoltPur Entity Activation - Lithium-inspired (Phase E)
-    public static void optimizeEntityActivation() {
-        if (!VoltPurConfig.entityActivation) return;
-        try {
-            int optimized = 0;
-            for (org.bukkit.World world : Bukkit.getWorlds()) {
-                for (org.bukkit.entity.Entity entity : world.getEntities()) {
-                    // Skip players
-                    if (entity instanceof org.bukkit.entity.Player) continue;
-                    // Check distance to nearest player
-                    double minDistSq = Double.MAX_VALUE;
-                    for (org.bukkit.entity.Player player : world.getPlayers()) {
-                        double distSq = player.getLocation().distanceSquared(entity.getLocation());
-                        if (distSq < minDistSq) minDistSq = distSq;
-                    }
-                    // If far (>128 blocks) and not important, reduce tick
-                    if (minDistSq > 128*128) {
-                        // In real NMS patch, we would skip tick every 20 ticks
-                        // Here we just count for stats
-                        optimized++;
-                    }
-                }
-            }
-            if (optimized > 200) {
-                Bukkit.getLogger().info("[VoltPur-Perf] Entity Activation: " + optimized + " distant entities can sleep (Lithium-style)");
-            }
-        } catch (Exception e) {}
-    }
-
-    // VoltPur Chunk Optimization - C2ME-inspired
-    public static void optimizeChunks() {
+    /** Real, cheap chunk warning based on loaded chunks. */
+    public static void checkChunks() {
         if (!VoltPurConfig.chunkOptimization) return;
         try {
             int totalChunks = 0;
-            for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (World world : Bukkit.getWorlds()) {
                 totalChunks += world.getLoadedChunks().length;
             }
-            if (totalChunks > 2000) {
-                Bukkit.getLogger().warning("[VoltPur-Perf] High chunk count: " + totalChunks + " - consider reducing view-distance");
+            if (totalChunks > 3000) {
+                Bukkit.getLogger().warning("[VoltPur-Perf] High loaded chunks: " + totalChunks
+                        + " - consider reducing view-distance (see /voltpur hardware)");
             }
-        } catch (Exception e) {}
+        } catch (Exception ignored) {}
     }
 
-    public static void onServerStart() {
-        Bukkit.getLogger().info("[VoltPur-Perf] Server started - performance active | Max items/world: " + VoltPurConfig.maxItemsPerWorld);
+    /**
+     * Hopper candidate count for Phase-2 planning (does NOT modify hoppers).
+     * Not wired into the repeating loop: it must not print fake savings.
+     * In Phase 2 this becomes a real NMS patch (hopper cooldown sleep).
+     */
+    public static int countSleepableHoppers() {
+        int candidates = 0;
+        try {
+            for (World world : Bukkit.getWorlds()) {
+                for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
+                    try {
+                        for (org.bukkit.block.BlockState state : chunk.getTileEntities()) {
+                            if (state instanceof org.bukkit.block.Hopper) {
+                                org.bukkit.block.Hopper hopper = (org.bukkit.block.Hopper) state;
+                                boolean hasInventoryAbove =
+                                        hopper.getBlock().getRelative(org.bukkit.block.BlockFace.UP).getState()
+                                                instanceof org.bukkit.inventory.InventoryHolder;
+                                boolean powered = hopper.getBlock().isBlockPowered()
+                                        || hopper.getBlock().isBlockIndirectlyPowered();
+                                if (hopper.getInventory().isEmpty() && !hasInventoryAbove && !powered) {
+                                    candidates++;
+                                }
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+        } catch (Exception ignored) {}
+        return candidates;
     }
 }

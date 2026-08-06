@@ -1,4 +1,3 @@
-
 package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
@@ -8,94 +7,84 @@ public class VoltPur {
     public static final String VERSION = "26.2.0-RC1";
     public static final String BRAND = "VoltPur";
     public static final String MC_VERSION = "1.21.10";
-    public static final String[] MODULES = {
-        "EntityActivation",
-        "HopperOptimization",
-        "CollisionOptimization",
-        "MemoryOptimization",
-        "NetworkOptimization",
-        "RedstoneOptimization",
-        "ChunkLoading",
-        "GeneralOptimization",
-        "EntityLimits",
-        "LightEngine",
-        "ConnectionStability",
-        "BedrockBridge",
-        "AntiExploit",
-        "AikarFlagsAuto",
-        "VanillaParity",
-        "DiscordWebhook",
-        "WorldBackup",
-        "AutoUpdater",
-        "ResourcePackHTTP",
-        "PerWorldPlugin",
-        "PAdminWebUI"
-    };
     private static boolean initialized = false;
+
     public static void init() {
         if (initialized) return;
         initialized = true;
         Logger logger = Bukkit.getLogger();
-        // VoltPur: Create plugin-pro folder if not exists (so user can see it)
+        logger.info("");
+        logger.info("  V O L T P U R - " + VERSION);
+        logger.info("  VoltCore real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE");
+        for (String name : VoltPurModules.all().keySet()) {
+            logger.info("  [VoltPur] " + VoltPurModules.line(name));
+        }
+        logger.info("  [VoltPur] /voltpur hardware  -> device compatibility");
+        logger.info("  [VoltPur] /voltpur benchmark -> live measured performance");
+        logger.info("  [VoltPur] /vo up             -> updater");
+
+        try { VoltPurConfig.init(); } catch (Exception e) { logger.warning("Config failed: " + e.getMessage()); }
+        try { VoltPurPerformance.init(); } catch (Exception e) { logger.warning("Perf init failed: " + e.getMessage()); }
+        try { VoltPurWorldCheck.init(); } catch (Exception e) { logger.warning("WorldCheck init failed: " + e.getMessage()); }
+
+        // Hardware detection + optional report (safe, read-only).
         try {
-            java.io.File pluginProFolder = new java.io.File("plugin-pro");
-            if (!pluginProFolder.exists()) {
-                pluginProFolder.mkdirs();
-                logger.info("[VoltPur] Created plugin-pro/ folder - put performance plugins here (Spark, etc)");
-                // Create README inside
-                java.io.File readme = new java.io.File(pluginProFolder, "README.txt");
+            VoltPurHardware.detect();
+            if (VoltPurConfig.hardwareReport) VoltPurHardware.reportToLogAndFile(VoltPurConfig.hardwareWarn);
+        } catch (Exception e) {
+            logger.warning("[VoltPur] Hardware detection failed: " + e.getMessage());
+        }
+
+        // Auto-tune applied after startup (opt-in).
+        if (VoltPurConfig.hardwareAutoTune) {
+            try {
+                Bukkit.getScheduler().runTaskLater(
+                    Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null,
+                    VoltPurTuning::onServerStart,
+                    800L
+                );
+            } catch (Exception e) {
+                logger.warning("[VoltPur] Auto-tune scheduling failed: " + e.getMessage());
+            }
+        }
+    }
+    public static String getVersion() { return VERSION; }
+
+    /**
+     * Honest handling of the plugin-pro/ concept.
+     * Paper has no runtime API to register a second plugin folder. Until a real
+     * patch (Phase 2, F8) adds it as a plugin source, we do NOT claim it loads.
+     * We simply ensure the folder exists and tell the admin to place jars in
+     * plugins/ (the folder Paper actually loads).
+     */
+    public static void ensurePluginProFolder() {
+        try {
+            java.io.File folder = new java.io.File("plugin-pro");
+            if (!folder.exists()) {
+                folder.mkdirs();
+                java.io.File readme = new java.io.File(folder, "README.txt");
                 if (!readme.exists()) {
                     try (java.io.FileWriter fw = new java.io.FileWriter(readme)) {
-                        fw.write("VoltPur plugin-pro/ folder\n");
-                        fw.write("Put performance plugins here:\n");
-                        fw.write("- Spark, ClearLag, etc\n");
-                        fw.write("They will load before normal plugins\n");
+                        fw.write("VoltPur plugin-pro/ - ORGANISATIONAL folder only (Phase 1).\n");
+                        fw.write("Paper loads plugins ONLY from the plugins/ folder.\n");
+                        fw.write("This folder is for organising/backing up performance plugin jars.\n");
+                        fw.write("Place jars you want loaded into plugins/ instead.\n");
                     }
                 }
             }
         } catch (Exception e) {
-            logger.warning("[VoltPur] Could not create plugin-pro folder: " + e.getMessage());
+            Bukkit.getLogger().warning("[VoltPur] Could not create plugin-pro folder: " + e.getMessage());
         }
-        logger.info("");
-        logger.info("  V O L T P U R - " + VERSION);
-        logger.info("  Loading " + MODULES.length + " modules...");
-        for (int i=0;i<MODULES.length;i++) {
-            logger.info("  [VoltPur] ["+(i+1)+"/21] "+MODULES[i]+" - OK");
-        }
-        logger.info("  [VoltPur] plugin-pro/ folder: ENABLED");
-        logger.info("  [VoltPur] Per-World Plugins: ENABLED");
-        logger.info("  [VoltPur] PAdmin WebUI: /padmin");
-        try { VoltPurConfig.init(); } catch(Exception e){ logger.warning("Config failed: "+e.getMessage()); }
-        try { VoltPurPerformance.init(); } catch(Exception e){ logger.warning("Perf init failed: "+e.getMessage()); }
-        try { VoltPurWorldCheck.init(); } catch(Exception e){ logger.warning("WorldCheck init failed: "+e.getMessage()); }
     }
-    public static String getVersion(){ return VERSION; }
 
-    // VoltPur: plugin-pro loader (Pterodactyl safe alternative to patching PluginInitializerManager)
+    /**
+     * Backwards-compatible wrapper (called by PurpurConfig.init()).
+     * In Phase 1 this only ensures the folder exists - it does NOT claim to load
+     * plugins. Real plugin-pro loading is a Phase 2 patch (F8).
+     */
     public static void loadPluginPro() {
-        try {
-            java.nio.file.Path p = java.nio.file.Path.of("plugin-pro");
-            if (!java.nio.file.Files.exists(p)) {
-                java.nio.file.Files.createDirectories(p);
-            }
-            if (java.nio.file.Files.isDirectory(p)) {
-                org.bukkit.Bukkit.getLogger().info("[VoltPur] Loading plugins from plugin-pro/ folder...");
-                // Try to register via Paper's EntrypointUtil if available
-                try {
-                    Class<?> entrypointUtil = Class.forName("io.papermc.paper.plugin.util.EntrypointUtil");
-                    Class<?> dirSource = Class.forName("io.papermc.paper.plugin.provider.source.DirectoryProviderSource");
-                    Object instance = dirSource.getField("INSTANCE").get(null);
-                    java.lang.reflect.Method register = entrypointUtil.getMethod("registerProvidersFromSource", Class.forName("io.papermc.paper.plugin.provider.source.ProviderSource"), java.nio.file.Path.class);
-                    // This may fail if called too late, but try
-                    register.invoke(null, instance, p);
-                    org.bukkit.Bukkit.getLogger().info("[VoltPur] plugin-pro/ registered via EntrypointUtil");
-                } catch (Exception e) {
-                    org.bukkit.Bukkit.getLogger().info("[VoltPur] plugin-pro/ fallback: will load via Bukkit (folder exists, place jars in plugins/ or use Paper's add-plugin-dir)");
-                }
-            }
-        } catch (Exception e) {
-            org.bukkit.Bukkit.getLogger().warning("[VoltPur] plugin-pro load failed: " + e.getMessage());
-        }
+        ensurePluginProFolder();
+        Bukkit.getLogger().info("[VoltPur] plugin-pro/ is an organisational folder (Phase 1)."
+                + " Plugins are loaded from plugins/ by Paper.");
     }
-
 }

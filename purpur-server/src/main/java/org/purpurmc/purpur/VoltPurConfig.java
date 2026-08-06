@@ -1,4 +1,3 @@
-
 package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
@@ -23,24 +22,23 @@ public class VoltPurConfig {
     public static boolean performanceEnabled = true;
     public static int maxItemsPerWorld = 500;
     public static boolean tpsMonitor = true;
-    public static boolean hopperOptimization = true;
-    public static int hopperCooldownEmpty = 20;
     public static boolean entityLimiter = true;
-    public static boolean entityActivation = true;
     public static boolean chunkOptimization = true;
     public static String githubToken = "";
+
+    // ---- VoltPur Hardware module ----
+    public static boolean hardwareReport = true;
+    public static boolean hardwareAutoTune = false; // opt-in
+    public static boolean hardwareWarn = true;
 
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
         config = new YamlConfiguration();
         try {
-            if (CONFIG_FILE.exists()) {
-                config.load(CONFIG_FILE);
-            }
+            if (CONFIG_FILE.exists()) config.load(CONFIG_FILE);
         } catch (Exception ex) {
             Bukkit.getLogger().log(Level.WARNING, "[VoltPur] Could not load voltpur.yml", ex);
         }
-        // Defaults
         config.addDefault("version", 1);
         config.addDefault("modules.backup.enabled", backupEnabled);
         config.addDefault("modules.backup.interval-minutes", backupIntervalMinutes);
@@ -55,15 +53,15 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.enabled", performanceEnabled);
         config.addDefault("modules.performance.max-items-per-world", maxItemsPerWorld);
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
-        config.addDefault("modules.performance.hopper-optimization", hopperOptimization);
-        config.addDefault("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
-        config.addDefault("modules.performance.entity-activation", entityActivation);
         config.addDefault("modules.performance.chunk-optimization", chunkOptimization);
+        config.addDefault("modules.hardware.report-enabled", hardwareReport);
+        config.addDefault("modules.hardware.auto-tune", hardwareAutoTune);
+        config.addDefault("modules.hardware.warn-incompatible", hardwareWarn);
         config.addDefault("update.github-token", githubToken);
         config.addDefault("update.auto-backup", true);
         config.options().copyDefaults(true);
-        
+
         backupEnabled = config.getBoolean("modules.backup.enabled", backupEnabled);
         backupIntervalMinutes = config.getInt("modules.backup.interval-minutes", backupIntervalMinutes);
         discordWebhookEnabled = config.getBoolean("modules.discord-webhook.enabled", discordWebhookEnabled);
@@ -77,13 +75,12 @@ public class VoltPurConfig {
         performanceEnabled = config.getBoolean("modules.performance.enabled", performanceEnabled);
         maxItemsPerWorld = config.getInt("modules.performance.max-items-per-world", maxItemsPerWorld);
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
-        hopperOptimization = config.getBoolean("modules.performance.hopper-optimization", hopperOptimization);
-        hopperCooldownEmpty = config.getInt("modules.performance.hopper-cooldown-empty", hopperCooldownEmpty);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
-        entityActivation = config.getBoolean("modules.performance.entity-activation", entityActivation);
         chunkOptimization = config.getBoolean("modules.performance.chunk-optimization", chunkOptimization);
+        hardwareReport = config.getBoolean("modules.hardware.report-enabled", hardwareReport);
+        hardwareAutoTune = config.getBoolean("modules.hardware.auto-tune", hardwareAutoTune);
+        hardwareWarn = config.getBoolean("modules.hardware.warn-incompatible", hardwareWarn);
         githubToken = config.getString("update.github-token", githubToken);
-
 
         try { config.save(CONFIG_FILE); } catch (IOException e) { Bukkit.getLogger().warning("[VoltPur] Save failed: " + e.getMessage()); }
     }

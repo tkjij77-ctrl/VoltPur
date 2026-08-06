@@ -1,4 +1,3 @@
-
 package org.purpurmc.purpur.command;
 
 import com.sun.net.httpserver.HttpServer;
@@ -8,6 +7,9 @@ import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.Location;
+import org.purpurmc.purpur.VoltPur;
+import org.purpurmc.purpur.VoltPurModules;
+import org.purpurmc.purpur.VoltPurHardware;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -38,7 +40,8 @@ public class PAdminCommand extends Command {
             startWebServer();
             return true;
         }
-        if (sender instanceof Player player) {
+        if (sender instanceof Player) {
+            Player player = (Player) sender;
             if (!player.hasPermission("voltpur.admin.padmin")) {
                 player.sendMessage("No permission");
                 return true;
@@ -47,8 +50,8 @@ public class PAdminCommand extends Command {
         startWebServer();
         String ip = "localhost";
         try { ip = java.net.InetAddress.getLocalHost().getHostAddress(); } catch (Exception e) {}
-        sender.sendMessage("§aVoltPur PAdmin WebUI started at http://" + ip + ":" + PORT);
-        sender.sendMessage("§7Features: per-world plugin isolation, world management");
+        sender.sendMessage("§aVoltPur PAdmin WebUI started at http://"+ip+":" + PORT);
+        sender.sendMessage("§7Live data: modules, hardware, worlds, players");
         return true;
     }
 
@@ -57,6 +60,7 @@ public class PAdminCommand extends Command {
         try {
             server = HttpServer.create(new InetSocketAddress(PORT), 0);
             server.createContext("/", PAdminCommand::handleMain);
+            server.createContext("/api/status", PAdminCommand::handleStatus);
             server.setExecutor(java.util.concurrent.Executors.newSingleThreadExecutor());
             server.start();
             serverRunning = true;
@@ -67,9 +71,47 @@ public class PAdminCommand extends Command {
     }
 
     private static void handleMain(HttpExchange exchange) throws IOException {
-        String html = "<html><head><title>VoltPur PAdmin</title></head><body style='font-family:sans-serif;background:#0f0f1a;color:#e0e0e0;padding:20px'><h1 style='color:#9b59b6'>[VoltPur] VoltPur PAdmin</h1><p>Version: 26.2-VoltPur</p><p>Modules: 21</p><p>plugin-pro/ folder: ENABLED</p><p>Worlds: "+Bukkit.getWorlds().size()+"</p><p>Players: "+Bukkit.getOnlinePlayers().size()+"</p><hr><p>API: /api/status (coming soon)</p></body></html>";
-        byte[] resp = html.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+        StringBuilder mods = new StringBuilder();
+        for (String name : VoltPurModules.all().keySet()) {
+            mods.append("<li>").append(VoltPurModules.line(name)).append("</li>");
+        }
+        String html = "<html><head><title>VoltPur PAdmin</title>"
+            + "<style>body{font-family:sans-serif;background:#0f0f1a;color:#e0e0e0;padding:20px}"
+            + "h1{color:#9b59b6}.ok{color:#6fbf73}.warn{color:#d8b95c}.plan{color:#d88c5c}</style></head>"
+            + "<body><h1>[VoltPur] VoltPur PAdmin</h1>"
+            + "<p>Version: " + VoltPur.VERSION + " (MC " + VoltPur.MC_VERSION + ")</p>"
+            + "<p>Real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE</p>"
+            + "<p>plugin-pro/: organisational (Phase 1) — Paper loads from plugins/</p>"
+            + "<p>Worlds: " + Bukkit.getWorlds().size() + " | Players: " + Bukkit.getOnlinePlayers().size() + "</p>"
+            + "<hr><h3>Modules (honest status)</h3><ul>" + mods + "</ul>"
+            + "<hr><p>API: <a href='/api/status'>/api/status</a> (JSON)</p></body></html>";
+        send(exchange, html, "text/html; charset=utf-8");
+    }
+
+    private static void handleStatus(HttpExchange exchange) throws IOException {
+        StringBuilder modsJson = new StringBuilder();
+        for (String name : VoltPurModules.all().keySet()) {
+            modsJson.append("{\"name\":\"").append(name)
+                    .append("\",\"status\":\"").append(VoltPurModules.all().get(name)).append("\"},");
+        }
+        if (modsJson.length() > 0) modsJson.setLength(modsJson.length() - 1);
+        VoltPurHardware.detect();
+        String json = "{\"version\":\"" + VoltPur.VERSION + "\","
+            + "\"mc\":\"" + VoltPur.MC_VERSION + "\","
+            + "\"activeModules\":" + VoltPurModules.activeCount() + ","
+            + "\"totalModules\":" + VoltPurModules.totalCount() + ","
+            + "\"worlds\":" + Bukkit.getWorlds().size() + ","
+            + "\"players\":" + Bukkit.getOnlinePlayers().size() + ","
+            + "\"os\":\"" + VoltPurHardware.getOsName() + "\","
+            + "\"cores\":" + VoltPurHardware.getCores() + ","
+            + "\"ramMB\":" + VoltPurHardware.getPhysicalRamMB() + ","
+            + "\"modules\":[" + modsJson + "]}";
+        send(exchange, json, "application/json; charset=utf-8");
+    }
+
+    private static void send(HttpExchange exchange, String body, String contentType) throws IOException {
+        byte[] resp = body.getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", contentType);
         exchange.sendResponseHeaders(200, resp.length);
         exchange.getResponseBody().write(resp);
         exchange.getResponseBody().close();

@@ -4,6 +4,10 @@ import net.kyori.adventure.text.Component;
 import net.kyori.adventure.text.format.NamedTextColor;
 import org.purpurmc.purpur.VoltPur;
 import org.purpurmc.purpur.VoltPurConfig;
+import org.purpurmc.purpur.VoltPurHardware;
+import org.purpurmc.purpur.VoltPurModules;
+import org.purpurmc.purpur.VoltPurTuning;
+import org.purpurmc.purpur.VoltPurBenchmark;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -23,8 +27,8 @@ import java.util.zip.ZipInputStream;
 public class VoltPurCommand extends Command {
     public VoltPurCommand(String name) {
         super(name);
-        this.description = "VoltPur main command - shows version and modules";
-        this.usageMessage = "/voltpur [version|modules|reload|info|up|update] or /vo up <buildId>";
+        this.description = "VoltPur main command - version, modules, hardware, benchmark, update";
+        this.usageMessage = "/voltpur [version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up]";
         this.setPermission(null);
         this.setAliases(java.util.Arrays.asList("vo"));
     }
@@ -32,7 +36,7 @@ public class VoltPurCommand extends Command {
     @Override
     public List<String> tabComplete(CommandSender sender, String alias, String[] args, Location location) {
         if (args.length == 1) {
-            return Stream.of("version", "modules", "reload", "info", "up", "update")
+            return Stream.of("version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "up")
                 .filter(s -> s.startsWith(args[0].toLowerCase()))
                 .collect(Collectors.toList());
         }
@@ -43,18 +47,19 @@ public class VoltPurCommand extends Command {
     public boolean execute(CommandSender sender, String label, String[] args) {
         if (args.length == 0 || args[0].equalsIgnoreCase("version") || args[0].equalsIgnoreCase("info")) {
             sender.sendMessage(Component.text("[VoltPur] VoltPur " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.GOLD));
-            sender.sendMessage(Component.text("Brand: " + VoltPur.BRAND + " | Modules: " + VoltPur.MODULES.length, NamedTextColor.YELLOW));
-            sender.sendMessage(Component.text("Features: plugin-pro/, per-world plugins, padmin webui, connection stability", NamedTextColor.GRAY));
-            sender.sendMessage(Component.text("Use /voltpur modules to see all 21 modules", NamedTextColor.AQUA));
-            sender.sendMessage(Component.text("Use /vo up [buildId] to update server jar via hosting internet", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("Brand: " + VoltPur.BRAND + " | Real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("Use /voltpur modules (honest status) | /voltpur benchmark (real numbers)", NamedTextColor.AQUA));
+            sender.sendMessage(Component.text("Use /voltpur hardware to check device compatibility", NamedTextColor.AQUA));
+            sender.sendMessage(Component.text("Use /vo up [buildId] to update via hosting internet", NamedTextColor.GREEN));
             return true;
         }
         if (args[0].equalsIgnoreCase("modules")) {
-            sender.sendMessage(Component.text("=== [VoltPur] VoltPur Modules (" + VoltPur.MODULES.length + ") ===", NamedTextColor.GOLD));
-            for (int i=0;i<VoltPur.MODULES.length;i++) {
-                sender.sendMessage(Component.text((i+1)+". "+VoltPur.MODULES[i]+" - ENABLED", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("=== [VoltPur] VoltCore Modules (honest status) ===", NamedTextColor.GOLD));
+            for (String name : VoltPurModules.all().keySet()) {
+                sender.sendMessage(Component.text("  " + VoltPurModules.line(name), NamedTextColor.GRAY));
             }
-            sender.sendMessage(Component.text("All modules active and working!", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("ACTIVE=" + VoltPurModules.activeCount() + " PARTIAL="
+                + (VoltPurModules.totalCount() - VoltPurModules.activeCount()) + " | PLANNED listed honestly.", NamedTextColor.YELLOW));
             return true;
         }
         if (args[0].equalsIgnoreCase("status")) {
@@ -64,12 +69,12 @@ public class VoltPurCommand extends Command {
             for (org.bukkit.World w : Bukkit.getWorlds()) {
                 sender.sendMessage(Component.text("- " + w.getName() + " (" + w.getEnvironment() + ") E:" + w.getEntities().size() + " C:" + w.getLoadedChunks().length, NamedTextColor.GRAY));
             }
-            File[] checks = { new File("server.properties"), new File("bukkit.yml"), new File("purpur.yml"), new File("voltpur.yml"), new File("world"), new File("world_nether"), new File("world_the_end"), new File("plugins"), new File("plugin-pro") };
+            File[] checks = { new File("server.properties"), new File("bukkit.yml"), new File("purpur.yml"), new File("voltpur.yml"), new File("world"), new File("plugins") };
             int ok=0; for(File f:checks) if(f.exists()) ok++;
             sender.sendMessage(Component.text("Files: " + ok + "/" + checks.length + " OK", ok==checks.length?NamedTextColor.GREEN:NamedTextColor.YELLOW));
             double[] tps = Bukkit.getServer().getTPS();
             sender.sendMessage(Component.text("TPS: " + String.format("%.2f, %.2f, %.2f", tps[0], tps[1], tps[2]), NamedTextColor.GOLD));
-            sender.sendMessage(Component.text("Status: " + (ok==checks.length && Bukkit.getWorlds().size()>=1 ? "STABLE - Full Software" : "DEGRADED"), NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("Status: " + (ok==checks.length && Bukkit.getWorlds().size()>=1 ? "STABLE" : "DEGRADED"), NamedTextColor.GREEN));
             return true;
         }
         if (args[0].equalsIgnoreCase("worlds")) {
@@ -79,6 +84,47 @@ public class VoltPurCommand extends Command {
             }
             return true;
         }
+
+        // ---- Hardware: device compatibility + performance ----
+        if (args[0].equalsIgnoreCase("hardware")) {
+            VoltPurHardware.detect();
+            for (String line : VoltPurHardware.hardwareReport()) {
+                sender.sendMessage(Component.text(line, NamedTextColor.AQUA));
+            }
+            sender.sendMessage(Component.text("Report also at logs/voltpur-hardware-report.txt", NamedTextColor.GRAY));
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("flags") || args[0].equalsIgnoreCase("jvm")) {
+            VoltPurHardware.detect();
+            sender.sendMessage(Component.text("=== [VoltPur] Recommended JVM Flags for THIS machine ===", NamedTextColor.GOLD));
+            sender.sendMessage(Component.text(VoltPurHardware.recommendedJvmArgs(), NamedTextColor.GREEN));
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("optimize") || args[0].equalsIgnoreCase("tune")) {
+            if (!sender.hasPermission("voltpur.admin.tune") && !sender.isOp()) {
+                sender.sendMessage(Component.text("No permission - voltpur.admin.tune or OP", NamedTextColor.RED));
+                return true;
+            }
+            VoltPurHardware.detect();
+            sender.sendMessage(Component.text("Applying hardware-tuned server.properties...", NamedTextColor.YELLOW));
+            boolean applied = VoltPurTuning.applyServerProperties();
+            VoltPurTuning.writeTuningSheet();
+            sender.sendMessage(Component.text(applied ? "Applied! Sheet -> logs/voltpur-tuning.txt (restart to fully take effect)"
+                    : "Not applied. Enable modules.hardware.auto-tune in voltpur.yml.", applied ? NamedTextColor.GREEN : NamedTextColor.YELLOW));
+            return true;
+        }
+
+        // ---- Benchmark: the ONLY source of real numbers ----
+        if (args[0].equalsIgnoreCase("benchmark") || args[0].equalsIgnoreCase("perf")) {
+            sender.sendMessage(Component.text("Running live benchmark...", NamedTextColor.YELLOW));
+            for (String line : VoltPurBenchmark.snapshot("manual")) {
+                sender.sendMessage(Component.text(line, NamedTextColor.AQUA));
+            }
+            VoltPurBenchmark.record("manual");
+            sender.sendMessage(Component.text("Measured snapshot appended to logs/voltpur-benchmark.txt", NamedTextColor.GRAY));
+            return true;
+        }
+
         if (args[0].equalsIgnoreCase("reload")) {
             if (!sender.hasPermission("voltpur.admin.reload") && !sender.isOp()) {
                 sender.sendMessage(Component.text("No permission - requires voltpur.admin.reload or OP", NamedTextColor.RED));
@@ -95,13 +141,8 @@ public class VoltPurCommand extends Command {
             }
             String buildId = args.length > 1 ? args[1] : null;
             sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
-            if (buildId != null) {
-                sender.sendMessage(Component.text("Build ID: " + buildId, NamedTextColor.GRAY));
-            } else {
-                sender.sendMessage(Component.text("No build ID provided, using latest successful build", NamedTextColor.GRAY));
-            }
+            sender.sendMessage(Component.text(buildId != null ? "Build ID: " + buildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
-            // Run async
             Bukkit.getScheduler().runTaskAsynchronously(Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null, () -> {
                 try {
                     doUpdate(sender, buildId);
@@ -122,14 +163,11 @@ public class VoltPurCommand extends Command {
             String token = VoltPurConfig.githubToken;
             boolean hasToken = token != null && !token.isEmpty() && !token.equals("");
 
-            // Step 1: Determine run ID
             String runId = buildId;
             if (runId == null || runId.isEmpty()) {
-                // Get latest successful run
                 sender.sendMessage(Component.text("Fetching latest successful build...", NamedTextColor.YELLOW));
                 String runsUrl = "https://api.github.com/repos/" + repo + "/actions/runs?per_page=1&status=success&branch=ver/26.2";
                 String runsJson = httpGet(runsUrl, hasToken ? token : null);
-                // Parse run id from json - simple extraction
                 String idMarker = "\"id\":";
                 int idx = runsJson.indexOf(idMarker);
                 if (idx == -1) throw new Exception("Could not parse latest run ID");
@@ -139,47 +177,32 @@ public class VoltPurCommand extends Command {
                 sender.sendMessage(Component.text("Latest build: " + runId, NamedTextColor.GREEN));
             }
 
-            // Step 2: Get artifacts for this run
             sender.sendMessage(Component.text("Fetching artifacts for build " + runId + "...", NamedTextColor.YELLOW));
             String artifactsUrl = "https://api.github.com/repos/" + repo + "/actions/runs/" + runId + "/artifacts";
             String artifactsJson = httpGet(artifactsUrl, hasToken ? token : null);
-            // Find artifact id
             if (!artifactsJson.contains("\"total_count\": 1") && !artifactsJson.contains("\"total_count\":1")) {
-                // Try to parse first artifact
                 if (!artifactsJson.contains("\"id\"")) {
-                    throw new Exception("No artifacts found for build " + runId + ". Build may have failed or expired. Try latest or check https://github.com/" + repo + "/actions");
+                    throw new Exception("No artifacts found for build " + runId + ". Build may have failed or expired. Try latest.");
                 }
             }
-            // Extract first artifact id
             int artIdx = artifactsJson.indexOf("\"id\":");
             int artStart = artifactsJson.indexOf(":", artIdx) + 1;
             int artEnd = artifactsJson.indexOf(",", artStart);
             String artifactId = artifactsJson.substring(artStart, artEnd).trim();
             sender.sendMessage(Component.text("Found artifact: " + artifactId, NamedTextColor.GREEN));
 
-            // Step 3: Download artifact zip
             if (!hasToken) {
                 sender.sendMessage(Component.text("[WARN] No GitHub token in voltpur.yml, trying public release...", NamedTextColor.YELLOW));
                 try {
-                    // Try latest release (public, no token needed) - works for /vo up without buildId
-                    String releaseUrl;
-                    if (buildId == null || buildId.isEmpty()) {
-                        releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
-                    } else {
-                        // Try to find release by build number: build-{run_number}-{sha} -> we need to list releases
-                        // Fallback: try latest release
-                        releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
-                        sender.sendMessage(Component.text("Build ID specified but no token - using latest release (may differ from build " + runId + ")", NamedTextColor.YELLOW));
-                    }
+                    String releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
                     sender.sendMessage(Component.text("Downloading from release: " + releaseUrl, NamedTextColor.YELLOW));
                     java.nio.file.Path tempJar = Files.createTempFile("voltpur-release-", ".jar");
                     downloadFilePublic(releaseUrl, tempJar);
                     long size = Files.size(tempJar);
-                    if (size < 1000000) { // Less than 1MB, likely HTML error page
-                        throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token for artifact download.");
+                    if (size < 1000000) {
+                        throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
                     sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
-                    // Backup and replace
                     java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
                     java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
                     if (Files.exists(currentJar)) {
@@ -193,24 +216,18 @@ public class VoltPurCommand extends Command {
                     return;
                 } catch (Exception e) {
                     sender.sendMessage(Component.text("Public release download failed: " + e.getMessage(), NamedTextColor.RED));
-                    sender.sendMessage(Component.text("To use /vo up <buildId> with artifacts, set github-token in voltpur.yml", NamedTextColor.YELLOW));
-                    sender.sendMessage(Component.text("Get token from https://github.com/settings/tokens", NamedTextColor.GRAY));
-                    sender.sendMessage(Component.text("Or download manually: https://github.com/" + repo + "/actions/runs/" + runId, NamedTextColor.AQUA));
+                    sender.sendMessage(Component.text("Set github-token in voltpur.yml for artifact download.", NamedTextColor.YELLOW));
                     return;
                 }
             }
 
             String downloadUrl = "https://api.github.com/repos/" + repo + "/actions/artifacts/" + artifactId + "/zip";
-            sender.sendMessage(Component.text("Downloading artifact (" + (193700175/1024/1024) + "MB) via hosting internet...", NamedTextColor.YELLOW));
-            sender.sendMessage(Component.text("This saves your internet - using server's connection", NamedTextColor.GREEN));
-
+            sender.sendMessage(Component.text("Downloading artifact via hosting internet...", NamedTextColor.YELLOW));
             java.nio.file.Path tempZip = Files.createTempFile("voltpur-update-", ".zip");
             downloadFile(downloadUrl, tempZip, token);
-
             long size = Files.size(tempZip);
             sender.sendMessage(Component.text("Downloaded: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
 
-            // Step 4: Extract server.jar
             sender.sendMessage(Component.text("Extracting server.jar...", NamedTextColor.YELLOW));
             java.nio.file.Path tempDir = Files.createTempDirectory("voltpur-extract-");
             String extractedJar = null;
@@ -223,27 +240,22 @@ public class VoltPurCommand extends Command {
                         Files.copy(zis, outPath, StandardCopyOption.REPLACE_EXISTING);
                         if (name.equals("server.jar") || extractedJar == null) {
                             extractedJar = outPath.toString();
-                            if (name.equals("server.jar")) {
-                                // Prefer server.jar
-                                extractedJar = outPath.toString();
-                            }
+                            if (name.equals("server.jar")) extractedJar = outPath.toString();
                         }
                     }
                     zis.closeEntry();
                 }
             }
-
             if (extractedJar == null) {
-                // Try to find any jar
-                try (var stream = Files.list(tempDir)) {
-                    var jars = stream.filter(p -> p.toString().endsWith(".jar")).toList();
+                try (java.util.stream.Stream<java.nio.file.Path> stream = Files.list(tempDir)) {
+                    java.util.List<java.nio.file.Path> jars =
+                        stream.filter(p -> p.toString().endsWith(".jar"))
+                              .collect(java.util.stream.Collectors.toList());
                     if (!jars.isEmpty()) extractedJar = jars.get(0).toString();
                 }
             }
-
             if (extractedJar == null) throw new Exception("No jar found in artifact zip");
 
-            // Step 5: Backup old and replace
             java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
             if (!Files.exists(currentJar)) {
                 currentJar = java.nio.file.Path.of("VoltPur-26.2.jar");
@@ -254,18 +266,12 @@ public class VoltPurCommand extends Command {
                 Files.copy(currentJar, backupJar, StandardCopyOption.REPLACE_EXISTING);
                 sender.sendMessage(Component.text("Backed up old jar to server.jar.old", NamedTextColor.GRAY));
             }
-
             java.nio.file.Path targetJar = java.nio.file.Path.of("server.jar");
             Files.copy(java.nio.file.Path.of(extractedJar), targetJar, StandardCopyOption.REPLACE_EXISTING);
-
             long newSize = Files.size(targetJar);
             sender.sendMessage(Component.text("[OK] Updated server.jar (" + (newSize/1024/1024) + "MB) from build " + runId, NamedTextColor.GREEN));
-            sender.sendMessage(Component.text("Restart server to apply update: /restart or stop & start", NamedTextColor.YELLOW));
-            sender.sendMessage(Component.text("Old jar backed up as server.jar.old", NamedTextColor.GRAY));
-
-            // Cleanup
+            sender.sendMessage(Component.text("Restart server to apply update", NamedTextColor.YELLOW));
             Files.deleteIfExists(tempZip);
-            // Don't delete tempDir immediately, keep for debugging
 
         } catch (Exception e) {
             sender.sendMessage(Component.text("[FAIL] Update failed: " + e.getMessage(), NamedTextColor.RED));
@@ -280,16 +286,13 @@ public class VoltPurCommand extends Command {
         conn.setRequestMethod("GET");
         conn.setRequestProperty("User-Agent", "VoltPur-Updater/1.0");
         conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
-        if (token != null && !token.isEmpty()) {
-            conn.setRequestProperty("Authorization", "token " + token);
-        }
+        if (token != null && !token.isEmpty()) conn.setRequestProperty("Authorization", "token " + token);
         conn.setConnectTimeout(15000);
         conn.setReadTimeout(15000);
         int code = conn.getResponseCode();
         if (code != 200) {
             InputStream err = conn.getErrorStream();
-            String errBody = err != null ? new String(err.readAllBytes()) : "";
-            throw new Exception("HTTP " + code + " for " + urlStr + " - " + errBody);
+            throw new Exception("HTTP " + code + " for " + urlStr + " - " + (err != null ? new String(err.readAllBytes()) : ""));
         }
         try (InputStream is = conn.getInputStream()) {
             return new String(is.readAllBytes());
@@ -317,17 +320,14 @@ public class VoltPurCommand extends Command {
         conn.setRequestMethod("GET");
         conn.setRequestProperty("User-Agent", "VoltPur-Updater/1.0");
         conn.setRequestProperty("Accept", "application/vnd.github.v3+json");
-        if (token != null && !token.isEmpty()) {
-            conn.setRequestProperty("Authorization", "token " + token);
-        }
+        if (token != null && !token.isEmpty()) conn.setRequestProperty("Authorization", "token " + token);
         conn.setConnectTimeout(15000);
-        conn.setReadTimeout(120000); // 2 min for large file
+        conn.setReadTimeout(120000);
         conn.setInstanceFollowRedirects(true);
         int code = conn.getResponseCode();
         if (code == 302 || code == 301) {
             String loc = conn.getHeaderField("Location");
             if (loc != null) {
-                // Follow redirect
                 URL redirectUrl = new URL(loc);
                 HttpURLConnection conn2 = (HttpURLConnection) redirectUrl.openConnection();
                 conn2.setRequestMethod("GET");
@@ -337,9 +337,7 @@ public class VoltPurCommand extends Command {
                 code = conn.getResponseCode();
             }
         }
-        if (code != 200) {
-            throw new Exception("Download failed HTTP " + code);
-        }
+        if (code != 200) throw new Exception("Download failed HTTP " + code);
         try (InputStream is = conn.getInputStream(); OutputStream os = Files.newOutputStream(dest)) {
             is.transferTo(os);
         }
