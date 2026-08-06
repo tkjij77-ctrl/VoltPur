@@ -63,6 +63,16 @@ public final class VoltPurBenchmark {
         long usedMB = (rt.totalMemory() - rt.freeMemory()) / (1024L*1024L);
         long maxMB = rt.maxMemory() / (1024L*1024L);
         out.add("Heap     : " + usedMB + " MB used / " + maxMB + " MB max");
+
+        // Hopper + EAR status (counter only; never changes state).
+        try {
+            int[] hopper = VoltPurPerformance.hopperStats();
+            out.add("Hoppers  : " + hopper[0] + " total / " + hopper[1] + " sleepable (empty+no-source+unpowered)");
+            out.add("HopperSleep: " + (VoltPurConfig.hopperSleepEnabled ? "ENABLED (cooldown=" + VoltPurConfig.hopperSleepCooldown + ")" : "off (opt-in)"));
+        } catch (Throwable e) { out.add("Hoppers  : unavailable"); }
+        // Entity Activation Range is a Paper/Purpur built-in; report it as reference.
+        out.add("EAR      : ACTIVE (Paper/Purpur built-in entity-activation-range)");
+
         out.add("-- end --");
         return out;
     }

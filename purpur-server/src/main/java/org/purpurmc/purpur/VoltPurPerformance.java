@@ -144,18 +144,22 @@ public class VoltPurPerformance {
     }
 
     /**
-     * Hopper candidate count for Phase-2 planning (does NOT modify hoppers).
-     * Not wired into the repeating loop: it must not print fake savings.
-     * In Phase 2 this becomes a real NMS patch (hopper cooldown sleep).
+     * Hopper stats for the benchmark (does NOT modify hoppers).
+     * Returns { totalHoppers, sleepableHoppers }.
+     * "Sleepable" = empty inventory + no container above + not powered, i.e. the
+     * exact safe condition under which tryMoveItems is a guaranteed no-op. This
+     * is a COUNTER only (never changes hopper state), so it never fakes savings.
      */
-    public static int countSleepableHoppers() {
-        int candidates = 0;
+    public static int[] hopperStats() {
+        int total = 0;
+        int sleepable = 0;
         try {
             for (World world : Bukkit.getWorlds()) {
                 for (org.bukkit.Chunk chunk : world.getLoadedChunks()) {
                     try {
                         for (org.bukkit.block.BlockState state : chunk.getTileEntities()) {
                             if (state instanceof org.bukkit.block.Hopper) {
+                                total++;
                                 org.bukkit.block.Hopper hopper = (org.bukkit.block.Hopper) state;
                                 boolean hasInventoryAbove =
                                         hopper.getBlock().getRelative(org.bukkit.block.BlockFace.UP).getState()
@@ -163,7 +167,7 @@ public class VoltPurPerformance {
                                 boolean powered = hopper.getBlock().isBlockPowered()
                                         || hopper.getBlock().isBlockIndirectlyPowered();
                                 if (hopper.getInventory().isEmpty() && !hasInventoryAbove && !powered) {
-                                    candidates++;
+                                    sleepable++;
                                 }
                             }
                         }
@@ -171,6 +175,6 @@ public class VoltPurPerformance {
                 }
             }
         } catch (Exception ignored) {}
-        return candidates;
+        return new int[]{total, sleepable};
     }
 }

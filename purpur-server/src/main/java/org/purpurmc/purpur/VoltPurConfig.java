@@ -24,6 +24,13 @@ public class VoltPurConfig {
     public static boolean tpsMonitor = true;
     public static boolean entityLimiter = true;
     public static boolean chunkOptimization = true;
+
+    // ---- VoltPur Hopper Sleep (real perf, opt-in, default OFF) ----
+    // Safe only when hopper is empty + no source above + no items in pickup
+    // zone + not powered (tryMoveItems is then a guaranteed no-op).
+    public static boolean hopperSleepEnabled = false; // opt-in: enable manually
+    public static int hopperSleepCooldown = 3;        // ticks to rest while empty-safe
+
     public static String githubToken = "";
 
     // ---- VoltPur Hardware module ----
@@ -55,6 +62,8 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
         config.addDefault("modules.performance.chunk-optimization", chunkOptimization);
+        config.addDefault("modules.performance.hopper-sleep.enabled", hopperSleepEnabled);
+        config.addDefault("modules.performance.hopper-sleep.cooldown", hopperSleepCooldown);
         config.addDefault("modules.hardware.report-enabled", hardwareReport);
         config.addDefault("modules.hardware.auto-tune", hardwareAutoTune);
         config.addDefault("modules.hardware.warn-incompatible", hardwareWarn);
@@ -77,6 +86,8 @@ public class VoltPurConfig {
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
         chunkOptimization = config.getBoolean("modules.performance.chunk-optimization", chunkOptimization);
+        hopperSleepEnabled = config.getBoolean("modules.performance.hopper-sleep.enabled", hopperSleepEnabled);
+        hopperSleepCooldown = Math.max(1, config.getInt("modules.performance.hopper-sleep.cooldown", hopperSleepCooldown));
         hardwareReport = config.getBoolean("modules.hardware.report-enabled", hardwareReport);
         hardwareAutoTune = config.getBoolean("modules.hardware.auto-tune", hardwareAutoTune);
         hardwareWarn = config.getBoolean("modules.hardware.warn-incompatible", hardwareWarn);

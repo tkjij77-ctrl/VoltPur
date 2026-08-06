@@ -38,10 +38,16 @@ public final class VoltPurModules {
         register("AikarFlagsAuto",      Status.PARTIAL);  // recommends flags; not applied automatically
         register("BedrockBridge",       Status.PARTIAL);  // detection only (no QoS patch applied)
         register("AntiExploit",         Status.PARTIAL);  // minimal
+        // Entity Activation is ACTIVE via Paper's built-in ActivationRange (EAR);
+        // VoltPur adds no duplicate patch. Reported PARTIAL until a VoltPur-specific
+        // tuning/measurement is wired to it.
+        register("EntityActivation",    Status.PARTIAL);  // via Paper EAR (already on)
 
         // ---- Honest PLANNED (NOT implemented yet) ----
-        register("HopperOptimization",  Status.PLANNED);  // needs NMS (Phase 2)
-        register("EntityActivation",    Status.PLANNED);  // needs NMS (Phase 2)
+        // Hopper sleep: Java-layer config is ready (opt-in) but the NMS patch
+        // (empty-hopper rest in HopperBlockEntity.pushItemsTick) must be applied
+        // via applyAllPatches+rebuildPatches on the build machine. See docs/HOPPER_SNIPPET.md.
+        register("HopperOptimization",  Status.PLANNED);  // NMS patch pending applyPatches
         register("CollisionOptimization", Status.PLANNED);
         register("MemoryOptimization",  Status.PLANNED);  // FerriteCore not applied
         register("NetworkOptimization", Status.PLANNED);
