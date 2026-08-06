@@ -118,10 +118,14 @@ d436ded success - WorldCheck
 
 ### ⌨️ الأوامر
 ```
+/voltpur help        - مرجع كامل لكل الأوامر (مستحسن البدء به)
 /voltpur version     - معلومات النسخة (26.2.0-RC1)
-/voltpur modules     - 21 موديول ENABLED
+/voltpur modules     - حالة الموديولات الصادقة (8/24 ACTIVE)
 /voltpur status      - فحص شامل: عوالم، ملفات، TPS، هل STABLE؟
 /voltpur worlds      - قائمة العوالم المحملة
+/voltpur hardware    - توافق العتاد + أعلام JVM الموصى بها
+/voltpur benchmark   - أرقام مقاسة حيّة (TPS/MSPT/Heap/hoppers)
+/voltpur optimize    - تطبيق ضبط server.properties حسب العتاد (OP)
 /voltpur reload      - إعادة تحميل voltpur.yml
 /vo up [buildId]     - تحديث السيرفر بنت الاستضافة (يوفر نتك)
 /padmin              - WebUI على localhost:25567
@@ -136,16 +140,16 @@ d436ded success - WorldCheck
 ### 📊 الأداء الحقيقي (Real Benchmarks - لا وهم)
 شوف [docs/BENCHMARKS.md](docs/BENCHMARKS.md) للأرقام المقاسة بمنهجية واضحة
 
-| الميزة | التحسن الحقيقي | الحالة |
+| الميزة | الوضع الحقيقي | الحالة |
 |--------|----------------|--------|
-| **Hopper (Java)** | 62% أسرع (8.2ms → 3.1ms) | ✅ يعمل |
-| **Item Limiter** | 50% أسرع Tick, 18% RAM أقل | ✅ يعمل |
-| **Entity Activation** | 0% حاليا (logging only) - 80% متوقع Phase 2 NMS | 🔄 |
-| **Pterodactyl Fix** | 0% → 100% نجاح | ✅ |
-| **متوسط حالي** | **15-20%** | ✅ |
-| **متوقع كامل** | **40-60%** | 🔄 |
+| **Item Limiter** | يعمل (يحذف العناصر الزائدة فوق الحد) | ✅ يعمل |
+| **TPS Monitor** | يعمل (يحذّر عند TPS < 18) | ✅ يعمل |
+| **Chunk Check** | يعمل (يحذّر عند كثرة الكانكس) | ✅ يعمل |
+| **Hardware Detection** | يعمل (تقرير توافق + أعلام JVM) | ✅ يعمل |
+| **Entity Activation** | PARTIAL (نشطة عبر Paper EAR المدمج) | 🟠 |
+| **Hopper Optimization** | PLANNED (snippet NMS جاهز في docs/HOPPER_SNIPPET.md) | 🟡 |
 
-**لا أرقام وهمية مثل 95% Redstone أو 300% Tunnel بدون قياس**
+> **ملاحظة صدق:** أي رقم نسبي (مثل "62%" أو "+15-20%") **لم نؤكّده بقياس بعد** — لذلك لا نعرضه كحقيقة. لقياسه بنفسك: `/voltpur benchmark` قبل وبعد. أضف التحسين الذي يظهر قياساً فعلياً.
 
 ### 🌐 Bedrock
 - [x] Geyser + Floodgate يتحملوا
@@ -292,11 +296,14 @@ java -Xms128M -Xmx{{SERVER_MEMORY}}M --add-modules=jdk.incubator.vector -Dtermin
 
 ### /voltpur
 ```
+/voltpur help        - مرجع كامل لكل الأوامر
 /voltpur version     - يوريك إصدار VoltPur (26.2.0-RC1) + MC (1.21.10)
 /voltpur info        - نفس version
-/voltpur modules     - يعرض 21 موديول كلهم ENABLED
+/voltpur modules     - حالة الموديولات الصادقة (8/24 ACTIVE + الباقي PARTIAL/PLANNED)
 /voltpur status      - ⭐ الأهم: فحص شامل
 /voltpur worlds      - يعرض العوالم المحملة (3)
+/voltpur hardware    - توافق العتاد + أعلام JVM
+/voltpur benchmark   - أرقام مقاسة حيّة
 /voltpur reload      - يعيد تحميل voltpur.yml (محتاج OP)
 ```
 
@@ -370,7 +377,9 @@ world_the_end - THE_END - loaded
 - **Purpur الأصلي:** https://github.com/PurpurMC/Purpur
 - **Paper:** https://github.com/PaperMC/Paper
 - **Pterodactyl Fix:** [PTERODACTYL_FIX.md](PTERODACTYL_FIX.md)
+- **Changelog (كل المراحل):** [CHANGELOG.md](docs/CHANGELOG.md)
 - **Benchmarks:** [BENCHMARKS.md](docs/BENCHMARKS.md)
+- **Hopper snippet (Phase 2):** [HOPPER_SNIPPET.md](docs/HOPPER_SNIPPET.md)
 - **Stability:** [STABILITY_CHECK.md](docs/STABILITY_CHECK.md)
 - **RC1 Plan:** [RC1_PLAN.md](docs/RC1_PLAN.md)
 

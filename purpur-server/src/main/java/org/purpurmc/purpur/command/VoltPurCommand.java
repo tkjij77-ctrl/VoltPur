@@ -27,8 +27,8 @@ import java.util.zip.ZipInputStream;
 public class VoltPurCommand extends Command {
     public VoltPurCommand(String name) {
         super(name);
-        this.description = "VoltPur main command - version, modules, hardware, benchmark, update";
-        this.usageMessage = "/voltpur [version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up]";
+        this.description = "VoltPur main command - help, version, modules, hardware, benchmark, update";
+        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up]";
         this.setPermission(null);
         this.setAliases(java.util.Arrays.asList("vo"));
     }
@@ -36,7 +36,7 @@ public class VoltPurCommand extends Command {
     @Override
     public List<String> tabComplete(CommandSender sender, String alias, String[] args, Location location) {
         if (args.length == 1) {
-            return Stream.of("version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "up")
+            return Stream.of("help", "version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "up")
                 .filter(s -> s.startsWith(args[0].toLowerCase()))
                 .collect(Collectors.toList());
         }
@@ -45,6 +45,12 @@ public class VoltPurCommand extends Command {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
+        // ---- VoltPur Help: self-documenting reference ----
+        if (args.length == 0 || args[0].equalsIgnoreCase("help") || args[0].equalsIgnoreCase("?")
+                || args[0].equalsIgnoreCase("commands")) {
+            new VoltPurHelp("voltpur").execute(sender, label, new String[]{});
+            return true;
+        }
         if (args.length == 0 || args[0].equalsIgnoreCase("version") || args[0].equalsIgnoreCase("info")) {
             sender.sendMessage(Component.text("[VoltPur] VoltPur " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.GOLD));
             sender.sendMessage(Component.text("Brand: " + VoltPur.BRAND + " | Real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE", NamedTextColor.YELLOW));
