@@ -1,0 +1,18 @@
+--- a/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
++++ b/src/main/java/io/papermc/paper/plugin/PluginInitializerManager.java
+@@ -100,6 +_,15 @@
+         // We have to load the bukkit configuration inorder to get the update folder location.
+         io.papermc.paper.plugin.PluginInitializerManager pluginSystem = io.papermc.paper.plugin.PluginInitializerManager.init(optionSet);
+ 
++        // VoltPur start - plugin-pro/ loads BEFORE plugins/ (performance-first)
++        // DirectoryProviderSource.INSTANCE creates the folder if missing and
++        // only processes *.jar files (isValidFile), so a README.txt is ignored.
++        io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(
++            io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE,
++            java.nio.file.Path.of("plugin-pro")
++        );
++        // VoltPur end
++
+         // Register the default plugin directory
+         io.papermc.paper.plugin.util.EntrypointUtil.registerProvidersFromSource(io.papermc.paper.plugin.provider.source.DirectoryProviderSource.INSTANCE, pluginSystem.pluginDirectoryPath());
+ 
