@@ -15,15 +15,13 @@ public class VoltPurWorldCheck {
         Logger logger = Bukkit.getLogger();
         logger.info("[VoltPur-World] Stability check scheduled");
 
-        // VoltPur: schedule the world check on Paper's GlobalRegionScheduler, which
-        // runs on the main thread and accepts a null plugin (works on servers with
-        // no plugins). A custom thread here caused "main thread check" AsyncCatcher
-        // errors when reading world entities.
-        try {
-            io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler sched =
-                    Bukkit.getGlobalRegionScheduler();
-            if (sched != null) {
-                sched.runDelayed(null, task -> {
+        // VoltPur: run the world check on the Bukkit sync scheduler (main thread)
+        // with a real plugin owner. Paper requires a non-null plugin for scheduling.
+        VoltPurPlugin.whenAvailable(() -> {
+            org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
+            if (p == null) return;
+            try {
+                Bukkit.getScheduler().runTaskLater(p, () -> {
                     try {
                         ensureServerProperties();
                         checkWorldsSync();
@@ -33,17 +31,10 @@ public class VoltPurWorldCheck {
                         logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
                     }
                 }, 200L); // ~10s after server start
-            } else {
-                // Fallback: run once after a delay on a worker thread, but ONLY
-                // touch server.properties (no world access) to avoid async errors.
-                new Thread(() -> {
-                    try { Thread.sleep(35000); ensureServerProperties(); }
-                    catch (Exception ignored) {}
-                }, "VoltPur-World-Fallback").start();
+            } catch (Exception e) {
+                logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
             }
-        } catch (Exception e) {
-            logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
-        }
+        });
     }
     public static void ensureServerProperties() {
         try {

@@ -149,31 +149,21 @@ public class VoltPurCommand extends Command {
             sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
             sender.sendMessage(Component.text(buildId != null ? "Build ID: " + buildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
-            // Run async via Paper's AsyncScheduler (accepts null plugin, so it works
-            // even on a server with NO plugins).
+            // Run async via Bukkit scheduler with a real plugin owner (required by Paper).
             try {
-                io.papermc.paper.threadedregions.scheduler.AsyncScheduler async =
-                        Bukkit.getAsyncScheduler();
-                if (async != null) {
-                    async.runNow(null, task -> {
-                        try {
-                            doUpdate(sender, buildId);
-                        } catch (Exception e) {
-                            sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
-                            e.printStackTrace();
-                        }
-                    });
-                } else {
-                    // Fallback: run on a worker thread (network only, safe).
-                    new Thread(() -> {
-                        try {
-                            doUpdate(sender, buildId);
-                        } catch (Exception e) {
-                            sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
-                            e.printStackTrace();
-                        }
-                    }, "VoltPur-Updater").start();
+                org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
+                if (p == null) {
+                    sender.sendMessage(Component.text("No plugin available for async scheduling. Add at least one plugin to plugins/ then retry.", NamedTextColor.RED));
+                    return true;
                 }
+                Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
+                    try {
+                        doUpdate(sender, buildId);
+                    } catch (Exception e) {
+                        sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
+                        e.printStackTrace();
+                    }
+                });
             } catch (Throwable e) {
                 sender.sendMessage(Component.text("Update scheduling failed: " + e.getMessage(), NamedTextColor.RED));
             }

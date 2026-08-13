@@ -25,33 +25,19 @@ public class VoltPurPerformance {
         Logger logger = Bukkit.getLogger();
         logger.info("[VoltPur-Perf] Initializing real performance tasks...");
 
-        // Use Paper's GlobalRegionScheduler (runs on the main thread, allows null
-        // plugin, so it works even on a server with NO plugins). NEVER use a raw
-        // java.util.Timer or a custom thread for world access: AsyncCatcher will
-        // reject it. We schedule on the global region scheduler directly.
-        startWithRegionScheduler();
-        logger.info("[VoltPur-Perf] Init complete");
-    }
-
-    /**
-     * Schedules repeating tasks on Paper's GlobalRegionScheduler, which executes on
-     * the main thread and accepts a null plugin (safe for plugin-less servers).
-     * If unavailable, tasks simply do not auto-run; they can still be triggered
-     * manually via /voltpur benchmark (which runs on the main thread).
-     */
-    private static void startWithRegionScheduler() {
-        try {
-            io.papermc.paper.threadedregions.scheduler.GlobalRegionScheduler sched =
-                    Bukkit.getGlobalRegionScheduler();
-            if (sched == null) {
-                Bukkit.getLogger().info("[VoltPur-Perf] GlobalRegionScheduler unavailable - auto tasks off (use /voltpur benchmark).");
-                return;
-            }
-            sched.runAtFixedRate(null, task -> {
+        // Schedule on the Bukkit sync scheduler with a real plugin owner. This runs
+        // on the MAIN thread (safe for world access). Paper requires a non-null
+        // plugin for scheduling, so we wait until a plugin is available.
+        VoltPurPlugin.whenAvailable(() -> {
+            org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
+            if (p == null) return;
+            // Item cleanup + chunk check (every 5 min).
+            Bukkit.getScheduler().scheduleSyncRepeatingTask(p, () -> {
                 try { if (VoltPurConfig.performanceEnabled) performCleanup(); } catch (Exception ignored) {}
                 try { checkChunks(); } catch (Exception ignored) {}
             }, 6000L, 6000L);
-            sched.runAtFixedRate(null, task -> {
+            // TPS monitor (every 1 min).
+            Bukkit.getScheduler().scheduleSyncRepeatingTask(p, () -> {
                 try {
                     if (!VoltPurConfig.tpsMonitor) return;
                     double[] tps = Bukkit.getServer().getTPS();
@@ -61,12 +47,9 @@ public class VoltPurPerformance {
                     }
                 } catch (Exception ignored) {}
             }, 1200L, 1200L);
-            Bukkit.getLogger().info("[VoltPur-Perf] Tasks started on GlobalRegionScheduler (main thread, safe).");
-        } catch (Throwable e) {
-            Bukkit.getLogger().warning("[VoltPur-Perf] Region scheduler unavailable: "
-                    + (e.getMessage() == null ? e.toString() : e.getMessage())
-                    + " - auto cleanup disabled (no async errors). Use /voltpur benchmark to run manually.");
-        }
+            logger.info("[VoltPur-Perf] Tasks started on main thread via Bukkit scheduler.");
+        });
+        logger.info("[VoltPur-Perf] Init complete");
     }
 
     /**
