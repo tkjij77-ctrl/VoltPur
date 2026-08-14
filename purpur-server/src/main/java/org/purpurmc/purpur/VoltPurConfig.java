@@ -6,37 +6,38 @@ import java.io.File;
 import java.io.IOException;
 import java.util.logging.Level;
 
+/**
+ * VoltPurConfig - ONLY real, functional options are exposed here.
+ *
+ * Removed options that were read from voltpur.yml but had no logic behind them
+ * (backup, discord-webhook, connection-stability, anti-exploit, per-world-plugin,
+ * padmin-webui port, aikar-flags). Dead config options confuse admins into
+ * thinking a feature is active when it is not. Keeping config honest.
+ */
 public class VoltPurConfig {
     private static File CONFIG_FILE;
     public static YamlConfiguration config;
-    public static boolean backupEnabled = true;
-    public static int backupIntervalMinutes = 5;
-    public static boolean discordWebhookEnabled = false;
-    public static String discordWebhookUrl = "";
-    public static boolean aikarFlagsAuto = true;
-    public static boolean connectionStability = true;
-    public static boolean antiExploit = true;
-    public static boolean perWorldPlugin = true;
-    public static boolean padminWebUI = true;
-    public static int padminPort = 25567;
+
+    // ---- Real: Performance tasks ----
     public static boolean performanceEnabled = true;
     public static int maxItemsPerWorld = 500;
     public static boolean tpsMonitor = true;
     public static boolean entityLimiter = true;
     public static boolean chunkOptimization = true;
 
-    // ---- VoltPur Hopper Sleep (real perf, opt-in, default OFF) ----
+    // ---- Real: Hopper Sleep (opt-in, default OFF) ----
     // Safe only when hopper is empty + no source above + no items in pickup
     // zone + not powered (tryMoveItems is then a guaranteed no-op).
     public static boolean hopperSleepEnabled = false; // opt-in: enable manually
     public static int hopperSleepCooldown = 3;        // ticks to rest while empty-safe
 
-    public static String githubToken = "";
-
-    // ---- VoltPur Hardware module ----
+    // ---- Real: Hardware module ----
     public static boolean hardwareReport = true;
     public static boolean hardwareAutoTune = false; // opt-in
     public static boolean hardwareWarn = true;
+
+    // ---- Real: Updater ----
+    public static String githubToken = "";
 
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
@@ -47,16 +48,6 @@ public class VoltPurConfig {
             Bukkit.getLogger().log(Level.WARNING, "[VoltPur] Could not load voltpur.yml", ex);
         }
         config.addDefault("version", 1);
-        config.addDefault("modules.backup.enabled", backupEnabled);
-        config.addDefault("modules.backup.interval-minutes", backupIntervalMinutes);
-        config.addDefault("modules.discord-webhook.enabled", discordWebhookEnabled);
-        config.addDefault("modules.discord-webhook.url", discordWebhookUrl);
-        config.addDefault("modules.aikar-flags-auto.enabled", aikarFlagsAuto);
-        config.addDefault("modules.connection-stability.enabled", connectionStability);
-        config.addDefault("modules.anti-exploit.enabled", antiExploit);
-        config.addDefault("modules.per-world-plugin.enabled", perWorldPlugin);
-        config.addDefault("modules.padmin-webui.enabled", padminWebUI);
-        config.addDefault("modules.padmin-webui.port", padminPort);
         config.addDefault("modules.performance.enabled", performanceEnabled);
         config.addDefault("modules.performance.max-items-per-world", maxItemsPerWorld);
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
@@ -71,16 +62,6 @@ public class VoltPurConfig {
         config.addDefault("update.auto-backup", true);
         config.options().copyDefaults(true);
 
-        backupEnabled = config.getBoolean("modules.backup.enabled", backupEnabled);
-        backupIntervalMinutes = config.getInt("modules.backup.interval-minutes", backupIntervalMinutes);
-        discordWebhookEnabled = config.getBoolean("modules.discord-webhook.enabled", discordWebhookEnabled);
-        discordWebhookUrl = config.getString("modules.discord-webhook.url", discordWebhookUrl);
-        aikarFlagsAuto = config.getBoolean("modules.aikar-flags-auto.enabled", aikarFlagsAuto);
-        connectionStability = config.getBoolean("modules.connection-stability.enabled", connectionStability);
-        antiExploit = config.getBoolean("modules.anti-exploit.enabled", antiExploit);
-        perWorldPlugin = config.getBoolean("modules.per-world-plugin.enabled", perWorldPlugin);
-        padminWebUI = config.getBoolean("modules.padmin-webui.enabled", padminWebUI);
-        padminPort = config.getInt("modules.padmin-webui.port", padminPort);
         performanceEnabled = config.getBoolean("modules.performance.enabled", performanceEnabled);
         maxItemsPerWorld = config.getInt("modules.performance.max-items-per-world", maxItemsPerWorld);
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
