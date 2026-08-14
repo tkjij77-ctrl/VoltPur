@@ -31,8 +31,9 @@ public final class VoltPurModules {
         register("TPSMonitor",          Status.ACTIVE);   // low-TPS logging
         register("WorldStability",      Status.ACTIVE);   // VoltPurWorldCheck
         register("PterodactylFix",      Status.ACTIVE);   // stability on panels
-        register("Updater",             Status.ACTIVE);   // /vo up
+        register("Updater",             Status.ACTIVE);   // /vo up + /vo up list
         register("PAdminWebUI",         Status.ACTIVE);   // /padmin
+        register("DynamicOptimizer",    Status.ACTIVE);   // adaptive spigot.yml tuning
 
         // ---- Partial ----
         register("AikarFlagsAuto",      Status.PARTIAL);  // recommends flags; not applied automatically
