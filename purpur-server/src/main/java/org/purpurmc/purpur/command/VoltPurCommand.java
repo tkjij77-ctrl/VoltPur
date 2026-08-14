@@ -176,21 +176,41 @@ public class VoltPurCommand extends Command {
         return false;
     }
 
-    /** Runs a task on the Bukkit async scheduler with a real plugin owner. */
+    /** Runs a task on an async scheduler. Works with or without plugins. */
     private void scheduleAsync(CommandSender sender, Runnable task) {
         try {
-            org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
-            if (p == null) {
-                sender.sendMessage(Component.text("No plugin available for async scheduling. Add at least one plugin to plugins/ then retry.", NamedTextColor.RED));
+            // Prefer Paper's AsyncScheduler (accepts null plugin).
+            io.papermc.paper.threadedregions.scheduler.AsyncScheduler async = Bukkit.getAsyncScheduler();
+            if (async != null) {
+                async.runNow(null, ignored -> {
+                    try { task.run(); }
+                    catch (Exception e) {
+                        sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
+                        e.printStackTrace();
+                    }
+                });
                 return;
             }
-            Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
+            // Fallback: Bukkit async scheduler needs a plugin; use one if available.
+            org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
+            if (p != null) {
+                Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
+                    try { task.run(); }
+                    catch (Exception e) {
+                        sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
+                        e.printStackTrace();
+                    }
+                });
+                return;
+            }
+            // Last resort: plain worker thread (network/file work only).
+            new Thread(() -> {
                 try { task.run(); }
                 catch (Exception e) {
                     sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
                     e.printStackTrace();
                 }
-            });
+            }, "VoltPur-Async").start();
         } catch (Throwable e) {
             sender.sendMessage(Component.text("Scheduling failed: " + e.getMessage(), NamedTextColor.RED));
         }

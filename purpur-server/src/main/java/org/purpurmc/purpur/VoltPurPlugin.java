@@ -62,7 +62,13 @@ public final class VoltPurPlugin {
                 }
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }
-            Bukkit.getLogger().warning("[VoltPur] No ENABLED plugin available after retries - auto tasks disabled (use /voltpur benchmark).");
+            // Log once, quietly, only if the server actually has no plugins at all.
+            try {
+                org.bukkit.plugin.Plugin[] all = Bukkit.getPluginManager().getPlugins();
+                if (all.length == 0) {
+                    Bukkit.getLogger().info("[VoltPur] No plugins loaded - auto sync tasks stay off (use /voltpur benchmark manually).");
+                }
+            } catch (Throwable ignored) {}
         }, "VoltPur-Plugin-Wait").start();
     }
 }
