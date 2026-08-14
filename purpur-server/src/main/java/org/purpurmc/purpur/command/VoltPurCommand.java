@@ -8,6 +8,7 @@ import org.purpurmc.purpur.VoltPurHardware;
 import org.purpurmc.purpur.VoltPurModules;
 import org.purpurmc.purpur.VoltPurTuning;
 import org.purpurmc.purpur.VoltPurBenchmark;
+import org.purpurmc.purpur.VoltPurOptimizer;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
@@ -115,6 +116,8 @@ public class VoltPurCommand extends Command {
                 return true;
             }
             VoltPurHardware.detect();
+            sender.sendMessage(Component.text("Applying dynamic optimizer (adaptive spigot.yml)...", NamedTextColor.YELLOW));
+            VoltPurOptimizer.apply();
             sender.sendMessage(Component.text("Applying hardware-tuned server.properties...", NamedTextColor.YELLOW));
             boolean applied = VoltPurTuning.applyServerProperties();
             VoltPurTuning.writeTuningSheet();

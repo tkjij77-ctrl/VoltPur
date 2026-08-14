@@ -35,6 +35,18 @@ public class VoltPur {
             logger.warning("[VoltPur] Hardware detection failed: " + e.getMessage());
         }
 
+        // Dynamic Optimizer - VoltCore signature feature. Runs after a plugin is
+        // enabled and worlds are loaded, then applies adaptive spigot.yml tuning.
+        try {
+            VoltPurPlugin.whenAvailable(() -> {
+                org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
+                if (p == null) return;
+                Bukkit.getScheduler().runTaskLater(p, VoltPurOptimizer::apply, 400L);
+            });
+        } catch (Exception e) {
+            logger.warning("[VoltPur] Optimizer schedule failed: " + e.getMessage());
+        }
+
         // Auto-tune applied after startup (opt-in).
         if (VoltPurConfig.hardwareAutoTune) {
             try {

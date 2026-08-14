@@ -25,6 +25,11 @@ public class VoltPurConfig {
     public static boolean entityLimiter = true;
     public static boolean chunkOptimization = true;
 
+    // ---- Real: Dynamic Optimizer (VoltCore signature feature) ----
+    // Reads live server state (hoppers, entities, chunks, TPS) and applies the
+    // best spigot.yml tuning automatically. Opt-in, measured via benchmark.
+    public static boolean optimizerEnabled = true;
+
     // ---- Real: Hopper Sleep (opt-in, default OFF) ----
     // Safe only when hopper is empty + no source above + no items in pickup
     // zone + not powered (tryMoveItems is then a guaranteed no-op).
@@ -53,6 +58,7 @@ public class VoltPurConfig {
         config.addDefault("modules.performance.tps-monitor", tpsMonitor);
         config.addDefault("modules.performance.entity-limiter", entityLimiter);
         config.addDefault("modules.performance.chunk-optimization", chunkOptimization);
+        config.addDefault("modules.performance.optimizer-enabled", optimizerEnabled);
         config.addDefault("modules.performance.hopper-sleep.enabled", hopperSleepEnabled);
         config.addDefault("modules.performance.hopper-sleep.cooldown", hopperSleepCooldown);
         config.addDefault("modules.hardware.report-enabled", hardwareReport);
@@ -67,6 +73,7 @@ public class VoltPurConfig {
         tpsMonitor = config.getBoolean("modules.performance.tps-monitor", tpsMonitor);
         entityLimiter = config.getBoolean("modules.performance.entity-limiter", entityLimiter);
         chunkOptimization = config.getBoolean("modules.performance.chunk-optimization", chunkOptimization);
+        optimizerEnabled = config.getBoolean("modules.performance.optimizer-enabled", optimizerEnabled);
         hopperSleepEnabled = config.getBoolean("modules.performance.hopper-sleep.enabled", hopperSleepEnabled);
         hopperSleepCooldown = Math.max(1, config.getInt("modules.performance.hopper-sleep.cooldown", hopperSleepCooldown));
         hardwareReport = config.getBoolean("modules.hardware.report-enabled", hardwareReport);
