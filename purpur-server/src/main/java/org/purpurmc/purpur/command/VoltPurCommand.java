@@ -151,24 +151,30 @@ public class VoltPurCommand extends Command {
                 sender.sendMessage(Component.text("No permission - voltpur.admin.update", NamedTextColor.RED));
                 return true;
             }
-            // /vo up list - show recent builds (New / Back, numbered)
+            // /vo up list - show recent builds (New / Back, numbered 1-5+)
             if (args.length > 1 && args[1].equalsIgnoreCase("list")) {
                 scheduleAsync(sender, () -> listBuilds(sender));
                 return true;
             }
+            // /vo up <number> - install the selected build number from the last list
             String buildId = args.length > 1 ? args[1] : null;
-            // numeric selection from the last /vo up list
-            if (buildId != null && buildId.matches("\\d{1,2}") && !CACHED_RUN_IDS.isEmpty()) {
-                int idx = Integer.parseInt(buildId) - 1;
-                if (idx >= 0 && idx < CACHED_RUN_IDS.size()) {
-                    buildId = CACHED_RUN_IDS.get(idx);
-                    sender.sendMessage(Component.text("Selected build #" + (idx + 1) + " -> run " + buildId, NamedTextColor.GREEN));
-                }
+            if (buildId == null || !buildId.matches("\\d{1,2}")) {
+                sender.sendMessage(Component.text("Usage: /vo up list  (show builds)  |  /vo up <1-5>  (install build number)", NamedTextColor.RED));
+                return true;
             }
+            if (CACHED_RUN_IDS.isEmpty()) {
+                sender.sendMessage(Component.text("No builds cached. Run /vo up list first.", NamedTextColor.YELLOW));
+                return true;
+            }
+            int idx = Integer.parseInt(buildId) - 1;
+            if (idx < 0 || idx >= CACHED_RUN_IDS.size()) {
+                sender.sendMessage(Component.text("Invalid number. Use /vo up list to see available builds.", NamedTextColor.RED));
+                return true;
+            }
+            buildId = CACHED_RUN_IDS.get(idx);
             final String finalBuildId = buildId;
-            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
-            sender.sendMessage(Component.text(finalBuildId != null ? "Build ID: " + finalBuildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
-            sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
+            sender.sendMessage(Component.text("Selected build #" + (idx + 1) + " -> run " + buildId, NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Downloading build " + buildId + "...", NamedTextColor.YELLOW));
             scheduleAsync(sender, () -> doUpdate(sender, finalBuildId));
             return true;
         }
