@@ -6,12 +6,12 @@ import org.bukkit.plugin.Plugin;
 /**
  * VoltPur Plugin owner helper.
  *
- * Paper's schedulers (Bukkit.getScheduler(), GlobalRegionScheduler, AsyncScheduler)
- * require a NON-NULL owning Plugin. VoltPur runs inside the server (not as a
- * plugin), and at init time (PurpurConfig.init) no plugin may be loaded yet.
- * This helper waits until a plugin becomes available, then returns it so tasks
- * can be scheduled correctly. If the server ever has zero plugins, auto tasks
- * simply stay disabled (they can still run via /voltpur benchmark on main thread).
+ * Paper's schedulers (Bukkit.getScheduler(), etc.) require a NON-NULL owning
+ * plugin, and scheduling a task on a plugin that is not yet ENABLED throws
+ * "Plugin attempted to register task while disabled". VoltPur runs inside the
+ * server (not as a plugin), and at init time (PurpurConfig.init) plugins are
+ * only just being loaded. This helper waits until a plugin is actually ENABLED,
+ * then returns it so tasks can be scheduled safely.
  */
 public final class VoltPurPlugin {
 
@@ -19,35 +19,39 @@ public final class VoltPurPlugin {
 
     private VoltPurPlugin() {}
 
-    /** Returns the first loaded plugin, or null if none are loaded yet. */
+    /** Returns a plugin that is ENABLED (schedulable), or null. Never caches disabled ones. */
     public static Plugin get() {
-        if (cached != null) return cached;
+        if (cached != null && cached.isEnabled()) return cached;
+        cached = null;
         try {
             Plugin[] pl = Bukkit.getPluginManager().getPlugins();
-            if (pl.length > 0) {
-                cached = pl[0];
-                return cached;
+            for (Plugin p : pl) {
+                if (p.isEnabled()) {
+                    cached = p;
+                    return cached;
+                }
             }
         } catch (Throwable ignored) {}
         return null;
     }
 
     /**
-     * Runs `then` on the MAIN thread once a plugin is available (waits up to
-     * ~80s). This lets us schedule repeating/sync tasks with a real plugin owner.
-     * If no plugin ever appears, `then` is not run and a warning is logged.
+     * Runs `then` once a plugin is ENABLED (waits up to ~90s). `then` is executed
+     * on the thread of the caller for the immediate case; for the delayed case it
+     * runs on a worker thread, so `then` must only SCHEDULE Bukkit tasks (never do
+     * world access directly). This is exactly how VoltPurPerformance / WorldCheck
+     * use it.
      */
     public static void whenAvailable(Runnable then) {
-        // Return early on main thread if a plugin is already present.
-        Plugin p = get();
-        if (p != null) {
+        // Fast path: a plugin is already enabled (e.g. command executed later).
+        if (get() != null) {
             try { then.run(); } catch (Throwable t) {
                 Bukkit.getLogger().warning("[VoltPur] whenAvailable task failed: " + t.getMessage());
             }
             return;
         }
         new Thread(() -> {
-            for (int i = 0; i < 40; i++) { // ~80s max
+            for (int i = 0; i < 45; i++) { // ~90s max
                 if (get() != null) {
                     try {
                         then.run();
@@ -58,7 +62,7 @@ public final class VoltPurPlugin {
                 }
                 try { Thread.sleep(2000); } catch (InterruptedException e) { return; }
             }
-            Bukkit.getLogger().warning("[VoltPur] No plugin available after retries - auto tasks disabled (use /voltpur benchmark).");
+            Bukkit.getLogger().warning("[VoltPur] No ENABLED plugin available after retries - auto tasks disabled (use /voltpur benchmark).");
         }, "VoltPur-Plugin-Wait").start();
     }
 }
