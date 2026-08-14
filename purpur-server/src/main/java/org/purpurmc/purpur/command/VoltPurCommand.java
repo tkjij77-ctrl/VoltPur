@@ -25,10 +25,13 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 public class VoltPurCommand extends Command {
+    // Cached recent successful run IDs (index 0 = newest), used by /vo up list + numeric selection.
+    private static final java.util.List<String> CACHED_RUN_IDS = new java.util.ArrayList<>();
+
     public VoltPurCommand(String name) {
         super(name);
         this.description = "VoltPur main command - help, version, modules, hardware, benchmark, update";
-        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up]";
+        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up|up list]";
         this.setPermission(null);
         this.setAliases(java.util.Arrays.asList("vo"));
     }
@@ -145,32 +148,77 @@ public class VoltPurCommand extends Command {
                 sender.sendMessage(Component.text("No permission - voltpur.admin.update", NamedTextColor.RED));
                 return true;
             }
-            String buildId = args.length > 1 ? args[1] : null;
-            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
-            sender.sendMessage(Component.text(buildId != null ? "Build ID: " + buildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
-            sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
-            // Run async via Bukkit scheduler with a real plugin owner (required by Paper).
-            try {
-                org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
-                if (p == null) {
-                    sender.sendMessage(Component.text("No plugin available for async scheduling. Add at least one plugin to plugins/ then retry.", NamedTextColor.RED));
-                    return true;
-                }
-                Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
-                    try {
-                        doUpdate(sender, buildId);
-                    } catch (Exception e) {
-                        sender.sendMessage(Component.text("Update failed: " + e.getMessage(), NamedTextColor.RED));
-                        e.printStackTrace();
-                    }
-                });
-            } catch (Throwable e) {
-                sender.sendMessage(Component.text("Update scheduling failed: " + e.getMessage(), NamedTextColor.RED));
+            // /vo up list - show recent builds (New / Back, numbered)
+            if (args.length > 1 && args[1].equalsIgnoreCase("list")) {
+                scheduleAsync(sender, () -> listBuilds(sender));
+                return true;
             }
+            String buildId = args.length > 1 ? args[1] : null;
+            // numeric selection from the last /vo up list
+            if (buildId != null && buildId.matches("\\d{1,2}") && !CACHED_RUN_IDS.isEmpty()) {
+                int idx = Integer.parseInt(buildId) - 1;
+                if (idx >= 0 && idx < CACHED_RUN_IDS.size()) {
+                    buildId = CACHED_RUN_IDS.get(idx);
+                    sender.sendMessage(Component.text("Selected build #" + (idx + 1) + " -> run " + buildId, NamedTextColor.GREEN));
+                }
+            }
+            final String finalBuildId = buildId;
+            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Checking for updates...", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text(finalBuildId != null ? "Build ID: " + finalBuildId : "No build ID, using latest successful build", NamedTextColor.GRAY));
+            sender.sendMessage(Component.text("Downloading via hosting internet to save your data...", NamedTextColor.AQUA));
+            scheduleAsync(sender, () -> doUpdate(sender, finalBuildId));
             return true;
         }
         sender.sendMessage(Component.text("Usage: "+usageMessage, NamedTextColor.RED));
         return false;
+    }
+
+    /** Runs a task on the Bukkit async scheduler with a real plugin owner. */
+    private void scheduleAsync(CommandSender sender, Runnable task) {
+        try {
+            org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
+            if (p == null) {
+                sender.sendMessage(Component.text("No plugin available for async scheduling. Add at least one plugin to plugins/ then retry.", NamedTextColor.RED));
+                return;
+            }
+            Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
+                try { task.run(); }
+                catch (Exception e) {
+                    sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
+                    e.printStackTrace();
+                }
+            });
+        } catch (Throwable e) {
+            sender.sendMessage(Component.text("Scheduling failed: " + e.getMessage(), NamedTextColor.RED));
+        }
+    }
+
+    /** Lists the most recent successful builds, numbered, split New (newest) / Back (older). */
+    private void listBuilds(CommandSender sender) {
+        sender.sendMessage(Component.text("Fetching recent builds...", NamedTextColor.YELLOW));
+        try {
+            String repo = "tkjij77-ctrl/VoltPur";
+            String token = VoltPurConfig.githubToken;
+            boolean hasToken = token != null && !token.isEmpty();
+            String url = "https://api.github.com/repos/" + repo + "/actions/runs?per_page=10&status=success&branch=ver/26.2";
+            String json = httpGet(url, hasToken ? token : null);
+            CACHED_RUN_IDS.clear();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":\\s*(\\d+)").matcher(json);
+            while (m.find()) CACHED_RUN_IDS.add(m.group(1));
+            if (CACHED_RUN_IDS.isEmpty()) {
+                sender.sendMessage(Component.text("No successful builds found.", NamedTextColor.RED));
+                return;
+            }
+            sender.sendMessage(Component.text("=== Recent VoltPur builds (newest first) ===", NamedTextColor.GOLD));
+            for (int i = 0; i < CACHED_RUN_IDS.size(); i++) {
+                boolean isNew = i < 5;
+                sender.sendMessage(Component.text("  [" + (i + 1) + "] " + (isNew ? "New" : "Back") + " - run " + CACHED_RUN_IDS.get(i),
+                        isNew ? NamedTextColor.GREEN : NamedTextColor.GRAY));
+            }
+            sender.sendMessage(Component.text("Use /vo up <number> to install that build.", NamedTextColor.AQUA));
+        } catch (Exception e) {
+            sender.sendMessage(Component.text("Failed to list builds: " + e.getMessage(), NamedTextColor.RED));
+        }
     }
 
     private void doUpdate(CommandSender sender, String buildId) {
