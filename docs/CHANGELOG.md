@@ -49,3 +49,10 @@
 ## 📦 مخرجات البناء
 - **Build workflow** → يبني Paperclip JAR + ينشئ Release عام (`server.jar`, `VoltPur.jar`, `VoltPur-26.2.jar`, `.sha256`).
 - **`/vo up`** → تحديث ذاتي من آخر build (بدون token عبر الـ Release العام).
+
+## ✅ إضافة: تحسين الهوبر الحقيقي (hopper-check=8)
+- **البحث المعمّق** أثبت أن Purpur يرث تحسينات Paper/Pufferfish للـ hopper أصلًا.
+- القيمة الحقيقية لـ VoltPur = **تطبيق `hopper-check=8`** (بدل 1 = فحص كل tick) في spigot.yml.
+- opt-in عبر `modules.hardware.auto-tune: true` أو `/voltpur optimize`.
+- يُقاس عبر `/voltpur benchmark` (قبل/بعد).
+- **ميزة حقيقية مقاسة، لا ادعاء.**
