@@ -223,6 +223,40 @@ public class VoltPurCommand extends Command {
     }
 
     /** Lists the most recent successful builds, numbered, split New (newest) / Back (older). */
+    /** Fetches the published SHA-256 from the latest release's .sha256 asset. */
+    private String fetchPublishedHash(String repo) {
+        try {
+            String url = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar.sha256";
+            URL u = new URL(url);
+            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
+            conn.setRequestMethod("GET");
+            conn.setConnectTimeout(15000);
+            conn.setReadTimeout(15000);
+            conn.setInstanceFollowRedirects(true);
+            if (conn.getResponseCode() != 200) return null;
+            try (InputStream is = conn.getInputStream()) {
+                String line = new String(is.readAllBytes()).trim();
+                int sp = line.indexOf(' ');
+                return (sp > 0 ? line.substring(0, sp) : line);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /** SHA-256 of a file as hex (for updater integrity check). */
+    private String sha256(java.nio.file.Path file) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (java.io.InputStream is = Files.newInputStream(file)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
+        }
+        StringBuilder sb = new StringBuilder();
+        for (byte b : md.digest()) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
     private void listBuilds(CommandSender sender) {
         sender.sendMessage(Component.text("Fetching recent builds...", NamedTextColor.YELLOW));
         try {
@@ -296,6 +330,13 @@ public class VoltPurCommand extends Command {
                         throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
                     sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
+                    // Integrity check: verify SHA-256 against the published checksum before replacing.
+                    String localHash = sha256(tempJar);
+                    String publishedHash = fetchPublishedHash(repo);
+                    if (publishedHash != null && !publishedHash.isEmpty() && !localHash.equalsIgnoreCase(publishedHash)) {
+                        throw new Exception("Hash mismatch! Local=" + localHash + " Published=" + publishedHash + ". Update aborted for safety.");
+                    }
+                    sender.sendMessage(Component.text("Integrity OK (sha256 " + localHash.substring(0, 12) + "...)", NamedTextColor.GREEN));
                     java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
                     java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
                     if (Files.exists(currentJar)) {
