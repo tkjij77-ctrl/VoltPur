@@ -174,6 +174,7 @@ public class VoltPurCommand extends Command {
             buildId = CACHED_RUN_IDS.get(idx);
             final String finalBuildId = buildId;
             sender.sendMessage(Component.text("Selected build #" + (idx + 1) + " -> run " + buildId, NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("[VoltPur] Clean update: ALL server files will be WIPED (worlds + eula.txt kept), then rebuilt like a first run.", NamedTextColor.GOLD));
             sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Downloading build " + buildId + "...", NamedTextColor.YELLOW));
             scheduleAsync(sender, () -> doUpdate(sender, finalBuildId));
             return true;
@@ -229,8 +230,14 @@ public class VoltPurCommand extends Command {
             String url = "https://api.github.com/repos/" + repo + "/actions/runs?per_page=10&status=success&branch=ver/26.2";
             String json = httpGet(url, hasToken ? token : null);
             CACHED_RUN_IDS.clear();
-            java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"id\":\\s*(\\d+)").matcher(json);
-            while (m.find()) CACHED_RUN_IDS.add(m.group(1));
+            // Parse ONLY workflow-run IDs. Every run object exposes its id inside
+            // ".../actions/runs/<id>" URLs; matching that (and de-duplicating) avoids
+            // catching unrelated "id" fields (actor id, repository id) that polluted
+            // the old list with bogus, un-installable numbers.
+            java.util.LinkedHashSet<String> runIds = new java.util.LinkedHashSet<>();
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("/actions/runs/(\\d+)").matcher(json);
+            while (m.find()) runIds.add(m.group(1));
+            CACHED_RUN_IDS.addAll(runIds);
             if (CACHED_RUN_IDS.isEmpty()) {
                 sender.sendMessage(Component.text("No successful builds found.", NamedTextColor.RED));
                 return;
@@ -293,15 +300,11 @@ public class VoltPurCommand extends Command {
                         throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
                     sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
-                    java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
-                    java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
-                    if (Files.exists(currentJar)) {
-                        Files.copy(currentJar, backupJar, StandardCopyOption.REPLACE_EXISTING);
-                        sender.sendMessage(Component.text("Backed up to server.jar.old", NamedTextColor.GRAY));
-                    }
+                    // CLEAN REINSTALL: wipe everything except worlds + eula.txt, then place the new jar.
+                    cleanReinstallKeepingWorlds(sender);
                     Files.copy(tempJar, java.nio.file.Path.of("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                    sender.sendMessage(Component.text("[OK] Updated server.jar from public release (" + (size/1024/1024) + "MB)", NamedTextColor.GREEN));
-                    sender.sendMessage(Component.text("Restart to apply: /restart", NamedTextColor.YELLOW));
+                    sender.sendMessage(Component.text("[OK] Clean-installed server.jar from public release (" + (size/1024/1024) + "MB). Worlds kept.", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("Restart to apply - server will regenerate files like a first run: /restart", NamedTextColor.YELLOW));
                     Files.deleteIfExists(tempJar);
                     return;
                 } catch (Exception e) {
@@ -346,27 +349,73 @@ public class VoltPurCommand extends Command {
             }
             if (extractedJar == null) throw new Exception("No jar found in artifact zip");
 
-            java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
-            if (!Files.exists(currentJar)) {
-                currentJar = java.nio.file.Path.of("VoltPur-26.2.jar");
-                if (!Files.exists(currentJar)) currentJar = java.nio.file.Path.of("purpur-server/build/libs/VoltPur-26.2.jar");
-            }
-            java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
-            if (Files.exists(currentJar)) {
-                Files.copy(currentJar, backupJar, StandardCopyOption.REPLACE_EXISTING);
-                sender.sendMessage(Component.text("Backed up old jar to server.jar.old", NamedTextColor.GRAY));
-            }
+            // CLEAN REINSTALL: wipe everything except worlds + eula.txt, then place the new jar.
+            cleanReinstallKeepingWorlds(sender);
             java.nio.file.Path targetJar = java.nio.file.Path.of("server.jar");
             Files.copy(java.nio.file.Path.of(extractedJar), targetJar, StandardCopyOption.REPLACE_EXISTING);
             long newSize = Files.size(targetJar);
-            sender.sendMessage(Component.text("[OK] Updated server.jar (" + (newSize/1024/1024) + "MB) from build " + runId, NamedTextColor.GREEN));
-            sender.sendMessage(Component.text("Restart server to apply update", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("[OK] Clean-installed server.jar (" + (newSize/1024/1024) + "MB) from build " + runId + ". Worlds kept.", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("Restart to apply - server will regenerate files like a first run: /restart", NamedTextColor.YELLOW));
             Files.deleteIfExists(tempZip);
 
         } catch (Exception e) {
             sender.sendMessage(Component.text("[FAIL] Update failed: " + e.getMessage(), NamedTextColor.RED));
             e.printStackTrace();
             Bukkit.getLogger().warning("[VoltPur] Update failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CLEAN REINSTALL (keeps worlds): deletes every file/folder in the server root
+     * EXCEPT the world folders and eula.txt, so the next start regenerates configs,
+     * libraries, cache, plugins, logs, etc. exactly like a first run - while player
+     * worlds (progress) survive. Called by the updater right before the new
+     * server.jar is written into place.
+     */
+    private void cleanReinstallKeepingWorlds(CommandSender sender) {
+        sender.sendMessage(Component.text("Clean reinstall: wiping server files (worlds + eula.txt are KEPT)...", NamedTextColor.YELLOW));
+        java.io.File root = new java.io.File(".").getAbsoluteFile();
+        java.io.File[] entries = root.listFiles();
+        if (entries == null) {
+            sender.sendMessage(Component.text("Could not list server root - skipping wipe.", NamedTextColor.RED));
+            return;
+        }
+        int deleted = 0, kept = 0;
+        for (java.io.File f : entries) {
+            String name = f.getName();
+            // Never delete: the server.jar slot (about to be replaced), eula.txt, or worlds.
+            if (name.equals("server.jar") || name.equalsIgnoreCase("eula.txt") || isWorldFolder(f)) {
+                kept++;
+                continue;
+            }
+            if (deleteRecursively(f)) deleted++;
+        }
+        sender.sendMessage(Component.text("Wipe complete: removed " + deleted + " item(s), kept " + kept + " (worlds/eula/jar).", NamedTextColor.GREEN));
+    }
+
+    /** True if the folder looks like a Minecraft world (level.dat directly, or in a dimension subfolder). */
+    private boolean isWorldFolder(java.io.File f) {
+        if (f == null || !f.isDirectory()) return false;
+        if (new java.io.File(f, "level.dat").exists()) return true;                 // overworld
+        java.io.File[] subs = f.listFiles(java.io.File::isDirectory);               // world_nether/DIM-1, world_the_end/DIM1
+        if (subs != null) {
+            for (java.io.File s : subs) {
+                if (new java.io.File(s, "level.dat").exists()) return true;
+            }
+        }
+        return false;
+    }
+
+    /** Recursively deletes a file or directory. Returns true if the top entry was removed. */
+    private boolean deleteRecursively(java.io.File f) {
+        try {
+            if (f.isDirectory()) {
+                java.io.File[] kids = f.listFiles();
+                if (kids != null) for (java.io.File k : kids) deleteRecursively(k);
+            }
+            return f.delete();
+        } catch (Exception e) {
+            return false;
         }
     }
 
