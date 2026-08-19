@@ -60,10 +60,3 @@ manifest.mf
 /paper-api
 *.jar
 test-plugin.settings.gradle.kts
-
-# VoltPur runtime secrets & config (never commit tokens/passwords)
-voltpur.yml
-*.backup
-*.backup.*
-server.jar
-server.jar.old

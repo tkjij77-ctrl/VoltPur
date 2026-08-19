@@ -24,15 +24,17 @@ import java.net.URL;
 import java.nio.file.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class VoltPurCommand extends Command {
     // Cached recent successful run IDs (index 0 = newest), used by /vo up list + numeric selection.
     private static final java.util.List<String> CACHED_RUN_IDS = new java.util.ArrayList<>();
+    private static final AtomicBoolean PLUGIN_INSTALL_RUNNING = new AtomicBoolean(false);
 
     public VoltPurCommand(String name) {
         super(name);
-        this.description = "VoltPur main command - help, version, modules, hardware, benchmark, update";
-        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|up|up list]";
+        this.description = "VoltPur main command - help, diagnostics, plugin install, update";
+        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|in|up]";
         this.setPermission(null);
         this.setAliases(java.util.Arrays.asList("vo"));
     }
@@ -40,9 +42,17 @@ public class VoltPurCommand extends Command {
     @Override
     public List<String> tabComplete(CommandSender sender, String alias, String[] args, Location location) {
         if (args.length == 1) {
-            return Stream.of("help", "version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "up")
+            return Stream.of("help", "version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "in", "up")
                 .filter(s -> s.startsWith(args[0].toLowerCase()))
                 .collect(Collectors.toList());
+        }
+        if (args.length == 3 && args[0].equalsIgnoreCase("in")) {
+            return Stream.of("plugins", "plugin-pro")
+                .filter(s -> s.startsWith(args[2].toLowerCase()))
+                .collect(Collectors.toList());
+        }
+        if (args.length == 2 && (args[0].equalsIgnoreCase("up") || args[0].equalsIgnoreCase("update"))) {
+            return Stream.of("list").filter(s -> s.startsWith(args[1].toLowerCase())).collect(Collectors.toList());
         }
         return Collections.emptyList();
     }
@@ -144,6 +154,37 @@ public class VoltPurCommand extends Command {
             }
             VoltPurConfig.init();
             sender.sendMessage(Component.text("VoltPur config reloaded!", NamedTextColor.GREEN));
+            return true;
+        }
+        if (args[0].equalsIgnoreCase("in") || args[0].equalsIgnoreCase("install")) {
+            if (!sender.hasPermission("voltpur.admin.install") && !sender.isOp()) {
+                sender.sendMessage(Component.text("[VoltPur] No permission - requires voltpur.admin.install or OP", NamedTextColor.RED));
+                return true;
+            }
+            if (args.length != 3 || !(args[2].equals("plugins") || args[2].equals("plugin-pro"))) {
+                sender.sendMessage(Component.text("Usage: /vo in <plugin-url> <plugins|plugin-pro>", NamedTextColor.RED));
+                return true;
+            }
+            if (!PLUGIN_INSTALL_RUNNING.compareAndSet(false, true)) {
+                sender.sendMessage(Component.text("[VoltPur] A plugin download is already running. Please wait.", NamedTextColor.YELLOW));
+                return true;
+            }
+            String pluginUrl = args[1];
+            String target = args[2];
+            sender.sendMessage(Component.text("[VoltPur] Downloading plugin securely to " + target + "/...", NamedTextColor.YELLOW));
+            scheduleAsync(sender, () -> {
+                try {
+                    PluginJarInstaller.Result result = PluginJarInstaller.install(pluginUrl, target);
+                    sender.sendMessage(Component.text("[VoltPur] Installed " + result.path().getFileName() + " (" + (result.bytes() / 1024) + " KiB) in " + target + "/.", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("[VoltPur] Plugin was not loaded automatically. Restart the server to load it.", NamedTextColor.GOLD));
+                    Bukkit.getLogger().info("[VoltPur] Plugin installer saved " + result.path().getFileName() + " to " + target + "/; restart required.");
+                } catch (Exception e) {
+                    sender.sendMessage(Component.text("[VoltPur] Plugin download failed: " + e.getMessage(), NamedTextColor.RED));
+                    Bukkit.getLogger().warning("[VoltPur] Plugin installer failed: " + e.getMessage());
+                } finally {
+                    PLUGIN_INSTALL_RUNNING.set(false);
+                }
+            });
             return true;
         }
         if (args[0].equalsIgnoreCase("up") || args[0].equalsIgnoreCase("update")) {

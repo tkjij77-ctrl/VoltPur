@@ -77,9 +77,12 @@ java -Xms128M -Xmx{{RAM}}M --add-modules=jdk.incubator.vector \
 /voltpur benchmark    قياس حي للأداء
 /voltpur optimize     تطبيق التحسينات (OP)
 /voltpur reload       إعادة تحميل الإعدادات (OP)
+/vo in <plugin-url> <plugins|plugin-pro>  تنزيل plugin JAR آمن (OP)
 /vo up [buildId]      تحديث server.jar
 /padmin               واجهة ويب
 ```
+
+أمر `in` يقبل روابط HTTP/HTTPS العامة فقط، ويتحقق من أن الملف JAR لبلجن صالح بحد أقصى 100 MiB. لا يشغّل البلجن تلقائياً؛ يلزم إعادة تشغيل الخادم بعد نجاح التنزيل.
 
 ---
 
@@ -91,7 +94,7 @@ java -Xms128M -Xmx{{RAM}}M --add-modules=jdk.incubator.vector \
 ---
 
 ## 📁 مجلدات العوالم
-عند أول تشغيل، VoltPur **يجهّز مجلدات** `world/`, `world_nether/`, `world_the_end/` في جذر الخادم (بيانات العوالم يولّدها ماينكرافت نفسه عند التحميل). تظهر في الروت جنب بقية الملفات كما في أي سوفت وير.
+VoltPur لا ينشئ مجلدات عوالم وهمية؛ Minecraft/Paper ينشئ `world/`, `world_nether/`, `world_the_end/` وبياناتها عند تحميل العوالم فعلياً. يحافظ المحدّث النظيف على مجلدات العوالم الموجودة وعلى `eula.txt`.
 
 ---
 

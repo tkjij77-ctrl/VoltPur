@@ -13,16 +13,10 @@ public class VoltPur {
         if (initialized) return;
         initialized = true;
         Logger logger = Bukkit.getLogger();
-        logger.info("");
-        logger.info("  V O L T P U R - " + VERSION);
-        logger.info("  VoltCore modules: " + VoltPurModules.activeCount() + " ACTIVE  |  "
-            + VoltPurModules.partialCount() + " PARTIAL  |  " + VoltPurModules.plannedCount() + " PLANNED (roadmap)");
-        for (String name : VoltPurModules.all().keySet()) {
-            logger.info("  [VoltPur] " + VoltPurModules.line(name));
-        }
-        logger.info("  [VoltPur] /voltpur hardware  -> device compatibility");
-        logger.info("  [VoltPur] /voltpur benchmark -> live measured performance");
-        logger.info("  [VoltPur] /vo up             -> updater");
+        logger.info("━━━━━━━━━━━━━━━━ VoltPur ⚡ " + VERSION + " ━━━━━━━━━━━━━━━━");
+        logger.info("[VoltPur] Modules: " + VoltPurModules.activeCount() + " active | "
+            + VoltPurModules.partialCount() + " partial | " + VoltPurModules.plannedCount() + " planned");
+        logger.info("[VoltPur] Commands: /voltpur help | plugin install: /vo in <url> <plugins|plugin-pro>");
         printInstalledStamp(logger);
 
         try { VoltPurConfig.init(); } catch (Exception e) { logger.warning("Config failed: " + e.getMessage()); }

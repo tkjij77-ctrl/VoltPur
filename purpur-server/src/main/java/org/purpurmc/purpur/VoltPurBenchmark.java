@@ -89,22 +89,9 @@ public final class VoltPurBenchmark {
             Files.write(file, toWrite, StandardCharsets.UTF_8,
                     Files.exists(file) ? java.nio.file.StandardOpenOption.APPEND
                                        : java.nio.file.StandardOpenOption.CREATE);
-            // Log rotation: cap file size to avoid unbounded disk growth.
-            trimFile(file, 512 * 1024); // 512 KB max
             Bukkit.getLogger().info("[VoltPur-Bench] Snapshot appended to logs/voltpur-benchmark.txt");
         } catch (IOException e) {
             Bukkit.getLogger().warning("[VoltPur-Bench] Could not write benchmark: " + e.getMessage());
         }
-    }
-
-    /** Keeps a file under a byte cap by truncating to the last N lines. */
-    private static void trimFile(Path file, long maxBytes) {
-        try {
-            if (Files.size(file) <= maxBytes) return;
-            java.util.List<String> all = Files.readAllLines(file, StandardCharsets.UTF_8);
-            int keep = Math.max(100, all.size() / 2); // keep at least 100 lines
-            List<String> tail = all.subList(all.size() - keep, all.size());
-            Files.write(file, tail, StandardCharsets.UTF_8);
-        } catch (IOException ignored) {}
     }
 }

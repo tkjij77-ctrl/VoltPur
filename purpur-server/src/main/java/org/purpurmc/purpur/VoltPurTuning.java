@@ -36,12 +36,6 @@ public final class VoltPurTuning {
                 try (FileInputStream fis = new FileInputStream(file)) { props.load(fis); }
             }
 
-            // Backup before modifying, so changes are reversible.
-            try {
-                java.nio.file.Path backup = java.nio.file.Path.of("server.properties.backup");
-                java.nio.file.Files.copy(file.toPath(), backup, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-            } catch (Exception ignored) {}
-
             // Read recommended values from the hardware detector
             String[] recommended = new String[0];
             for (String line : VoltPurHardware.recommendedServerSettings()) {

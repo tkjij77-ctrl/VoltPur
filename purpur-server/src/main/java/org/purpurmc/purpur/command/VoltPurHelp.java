@@ -31,7 +31,8 @@ public class VoltPurHelp extends Command {
 
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
-        sender.sendMessage("§6=== [VoltPur] Command Reference v" + VoltPur.VERSION + " ===");
+        sender.sendMessage("§6━━━━━━━━━━ §e⚡ VoltPur §6━━━━━━━━━━");
+        sender.sendMessage("§7Command Reference §8• §7v" + VoltPur.VERSION);
         sender.sendMessage("§7Real modules: §a" + VoltPurModules.activeCount() + "§7/§e" + VoltPurModules.totalCount() + "§7 ACTIVE (honest status)");
         sender.sendMessage("");
         sender.sendMessage("§b/voltpur version §7- version & MC info");
@@ -43,6 +44,7 @@ public class VoltPurHelp extends Command {
         sender.sendMessage("§b/voltpur optimize §7- apply hardware-tuned server.properties (OP)");
         sender.sendMessage("§b/voltpur benchmark §7- live measured TPS/MSPT/entities/chunks/heap/hoppers");
         sender.sendMessage("§b/voltpur reload §7- reload voltpur.yml (OP)");
+        sender.sendMessage("§b/vo in <plugin-url> <plugins|plugin-pro> §7- securely download a plugin JAR (OP; restart required)");
         sender.sendMessage("§b/vo up §7- update server.jar from latest build (OP)");
         sender.sendMessage("§b/vo up <buildId> §7- update to a specific build");
         sender.sendMessage("§b/padmin §7- start PAdmin WebUI (localhost:25567)");
