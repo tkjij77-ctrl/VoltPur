@@ -29,6 +29,9 @@
          }
  
          if (commandSelection.includeIntegrated) {
+@@ -467,1 +_,2 @@
++            if (context.getLevel() == null) return; // VoltPur - Paper #13580: guard null level (console command run before world is ready during startup)
+             GameRules gameRules = context.getLevel().getGameRules();
 @@ -523,6 +_,7 @@
      private void runSync(ServerPlayer player, java.util.Collection<String> bukkit, RootCommandNode<CommandSourceStack> root) {
          // Paper end - Perf: Async command map building
