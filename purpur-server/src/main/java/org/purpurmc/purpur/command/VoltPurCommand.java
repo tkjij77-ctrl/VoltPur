@@ -288,23 +288,46 @@ public class VoltPurCommand extends Command {
             String artifactId = artifactsJson.substring(artStart, artEnd).trim();
             sender.sendMessage(Component.text("Found artifact: " + artifactId, NamedTextColor.GREEN));
 
+            // Resolve the SELECTED build's identity (run number + commit) so we install
+            // EXACTLY the chosen build and can confirm it after boot.
+            String headSha = "";
+            String runNumber = "";
+            try {
+                String runDetail = httpGet("https://api.github.com/repos/" + repo + "/actions/runs/" + runId, hasToken ? token : null);
+                headSha = extractJson(runDetail, "head_sha");
+                runNumber = extractJsonNumber(runDetail, "run_number");
+            } catch (Exception ignored) {}
+            final String shortSha = headSha.length() >= 7 ? headSha.substring(0, 7) : headSha;
+
             if (!hasToken) {
-                sender.sendMessage(Component.text("[WARN] No GitHub token in voltpur.yml, trying public release...", NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("[WARN] No GitHub token - downloading the SELECTED build from its public release...", NamedTextColor.YELLOW));
                 try {
-                    String releaseUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
-                    sender.sendMessage(Component.text("Downloading from release: " + releaseUrl, NamedTextColor.YELLOW));
                     java.nio.file.Path tempJar = Files.createTempFile("voltpur-release-", ".jar");
-                    downloadFilePublic(releaseUrl, tempJar);
+                    boolean gotExact = false;
+                    if (!runNumber.isEmpty() && !headSha.isEmpty()) {
+                        String tag = "build-" + runNumber + "-" + headSha;
+                        String exactUrl = "https://github.com/" + repo + "/releases/download/" + tag + "/VoltPur-26.2.jar";
+                        sender.sendMessage(Component.text("Target: build #" + runNumber + " (commit " + shortSha + "), tag " + tag, NamedTextColor.AQUA));
+                        sender.sendMessage(Component.text("Downloading: " + exactUrl, NamedTextColor.YELLOW));
+                        try { downloadFilePublic(exactUrl, tempJar); gotExact = true; }
+                        catch (Exception exTag) { sender.sendMessage(Component.text("[WARN] Exact-build release asset not found (" + exTag.getMessage() + "). Falling back to latest.", NamedTextColor.YELLOW)); }
+                    }
+                    if (!gotExact) {
+                        String latestUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
+                        sender.sendMessage(Component.text("Downloading latest release: " + latestUrl, NamedTextColor.YELLOW));
+                        downloadFilePublic(latestUrl, tempJar);
+                    }
                     long size = Files.size(tempJar);
                     if (size < 1000000) {
                         throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
-                    sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("Downloaded jar: " + (size/1024/1024) + "MB" + (gotExact ? " (exact build #" + runNumber + ")" : " (latest)"), NamedTextColor.GREEN));
                     // CLEAN REINSTALL: wipe everything except worlds + eula.txt, then place the new jar.
                     cleanReinstallKeepingWorlds(sender);
                     Files.copy(tempJar, java.nio.file.Path.of("server.jar"), StandardCopyOption.REPLACE_EXISTING);
-                    sender.sendMessage(Component.text("[OK] Clean-installed server.jar from public release (" + (size/1024/1024) + "MB). Worlds kept.", NamedTextColor.GREEN));
-                    sender.sendMessage(Component.text("Restart to apply - server will regenerate files like a first run: /restart", NamedTextColor.YELLOW));
+                    writeInstalledStamp(runNumber, runId, headSha, gotExact);
+                    sender.sendMessage(Component.text("[OK] Clean-installed " + (gotExact ? "build #" + runNumber + " (commit " + shortSha + ")" : "latest release") + ". Worlds kept.", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("Restart from your panel (or /restart) to apply. After boot, the VoltPur banner confirms the installed build.", NamedTextColor.YELLOW));
                     Files.deleteIfExists(tempJar);
                     return;
                 } catch (Exception e) {
@@ -354,8 +377,9 @@ public class VoltPurCommand extends Command {
             java.nio.file.Path targetJar = java.nio.file.Path.of("server.jar");
             Files.copy(java.nio.file.Path.of(extractedJar), targetJar, StandardCopyOption.REPLACE_EXISTING);
             long newSize = Files.size(targetJar);
-            sender.sendMessage(Component.text("[OK] Clean-installed server.jar (" + (newSize/1024/1024) + "MB) from build " + runId + ". Worlds kept.", NamedTextColor.GREEN));
-            sender.sendMessage(Component.text("Restart to apply - server will regenerate files like a first run: /restart", NamedTextColor.YELLOW));
+            writeInstalledStamp(runNumber, runId, headSha, true);
+            sender.sendMessage(Component.text("[OK] Clean-installed build #" + (runNumber.isEmpty() ? runId : runNumber) + " (commit " + shortSha + ", " + (newSize/1024/1024) + "MB). Worlds kept.", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("Restart from your panel (or /restart) to apply. After boot, the VoltPur banner confirms the installed build.", NamedTextColor.YELLOW));
             Files.deleteIfExists(tempZip);
 
         } catch (Exception e) {
@@ -381,29 +405,75 @@ public class VoltPurCommand extends Command {
             return;
         }
         int deleted = 0, kept = 0;
+        java.util.List<String> keptWorlds = new java.util.ArrayList<>();
         for (java.io.File f : entries) {
             String name = f.getName();
-            // Never delete: the server.jar slot (about to be replaced), eula.txt, or worlds.
-            if (name.equals("server.jar") || name.equalsIgnoreCase("eula.txt") || isWorldFolder(f)) {
+            // Never delete: the server.jar slot (about to be replaced), eula.txt,
+            // the install stamp, or any world folder.
+            if (name.equals("server.jar") || name.equalsIgnoreCase("eula.txt") || name.equalsIgnoreCase("voltpur-installed.txt")) {
                 kept++;
+                continue;
+            }
+            if (isWorldFolder(f)) {
+                kept++;
+                keptWorlds.add(name);
                 continue;
             }
             if (deleteRecursively(f)) deleted++;
         }
-        sender.sendMessage(Component.text("Wipe complete: removed " + deleted + " item(s), kept " + kept + " (worlds/eula/jar).", NamedTextColor.GREEN));
+        sender.sendMessage(Component.text("Wipe complete: removed " + deleted + " item(s), kept " + kept
+                + " (worlds: " + (keptWorlds.isEmpty() ? "none" : String.join(", ", keptWorlds)) + " + eula/jar).", NamedTextColor.GREEN));
     }
 
-    /** True if the folder looks like a Minecraft world (level.dat directly, or in a dimension subfolder). */
+    /**
+     * True if the folder is (or looks like) a Minecraft world, so the clean reinstall
+     * NEVER deletes player worlds. We match by:
+     *   - known Bukkit world names (world / world_nether / world_the_end),
+     *   - a level.dat directly inside,
+     *   - a dimension/region/data marker sub-folder (incl. nested level.dat).
+     * The name-based match guarantees nether/end survive even if empty at wipe time.
+     */
     private boolean isWorldFolder(java.io.File f) {
         if (f == null || !f.isDirectory()) return false;
+        String n = f.getName().toLowerCase();
+        if (n.equals("world") || n.equals("world_nether") || n.equals("world_the_end")) return true;
         if (new java.io.File(f, "level.dat").exists()) return true;                 // overworld
         java.io.File[] subs = f.listFiles(java.io.File::isDirectory);               // world_nether/DIM-1, world_the_end/DIM1
         if (subs != null) {
             for (java.io.File s : subs) {
+                String sn = s.getName().toLowerCase();
+                if (sn.equals("region") || sn.equals("dim-1") || sn.equals("dim1")
+                        || sn.equals("dimensions") || sn.equals("playerdata") || sn.equals("entities")) return true;
                 if (new java.io.File(s, "level.dat").exists()) return true;
             }
         }
         return false;
+    }
+
+    /** Extracts a JSON string value ("key":"value"). */
+    private String extractJson(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"" + key + "\"\\s*:\\s*\"([^\"]+)\"").matcher(json);
+        return m.find() ? m.group(1) : "";
+    }
+
+    /** Extracts a JSON numeric value ("key":123). */
+    private String extractJsonNumber(String json, String key) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("\"" + key + "\"\\s*:\\s*(\\d+)").matcher(json);
+        return m.find() ? m.group(1) : "";
+    }
+
+    /**
+     * Writes the install fingerprint to voltpur-installed.txt in the server root so
+     * the VoltPur banner can CONFIRM, after the next boot, exactly which build is running.
+     */
+    private void writeInstalledStamp(String buildNumber, String runId, String sha, boolean exact) {
+        try (java.io.FileWriter fw = new java.io.FileWriter("voltpur-installed.txt")) {
+            fw.write("build=" + (buildNumber == null || buildNumber.isEmpty() ? "unknown" : buildNumber) + "\n");
+            fw.write("run=" + (runId == null ? "" : runId) + "\n");
+            fw.write("commit=" + (sha == null ? "" : sha) + "\n");
+            fw.write("exact=" + exact + "\n");
+            fw.write("installed-at=" + new java.util.Date() + "\n");
+        } catch (Exception ignored) {}
     }
 
     /** Recursively deletes a file or directory. Returns true if the top entry was removed. */

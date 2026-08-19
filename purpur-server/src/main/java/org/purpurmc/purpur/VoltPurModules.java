@@ -70,6 +70,12 @@ public final class VoltPurModules {
     public static int activeCount() {
         return (int) MODULES.values().stream().filter(s -> s == Status.ACTIVE).count();
     }
+    public static int partialCount() {
+        return (int) MODULES.values().stream().filter(s -> s == Status.PARTIAL).count();
+    }
+    public static int plannedCount() {
+        return (int) MODULES.values().stream().filter(s -> s == Status.PLANNED).count();
+    }
     public static int totalCount() { return MODULES.size(); }
 
     public static String line(String name) {

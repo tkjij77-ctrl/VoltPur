@@ -15,13 +15,15 @@ public class VoltPur {
         Logger logger = Bukkit.getLogger();
         logger.info("");
         logger.info("  V O L T P U R - " + VERSION);
-        logger.info("  VoltCore real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE");
+        logger.info("  VoltCore modules: " + VoltPurModules.activeCount() + " ACTIVE  |  "
+            + VoltPurModules.partialCount() + " PARTIAL  |  " + VoltPurModules.plannedCount() + " PLANNED (roadmap)");
         for (String name : VoltPurModules.all().keySet()) {
             logger.info("  [VoltPur] " + VoltPurModules.line(name));
         }
         logger.info("  [VoltPur] /voltpur hardware  -> device compatibility");
         logger.info("  [VoltPur] /voltpur benchmark -> live measured performance");
         logger.info("  [VoltPur] /vo up             -> updater");
+        printInstalledStamp(logger);
 
         try { VoltPurConfig.init(); } catch (Exception e) { logger.warning("Config failed: " + e.getMessage()); }
         try { VoltPurPerformance.init(); } catch (Exception e) { logger.warning("Perf init failed: " + e.getMessage()); }
@@ -104,6 +106,46 @@ public class VoltPur {
      */
     public static void loadPluginPro() {
         ensurePluginProFolder();
-        Bukkit.getLogger().info("[VoltPur] plugin-pro/ registered as a plugin source (loads before plugins/) via paperweight patch.");
+        Logger logger = Bukkit.getLogger();
+        // Honest description: plugin-pro/ is a PRIORITY plugin folder. The paperweight
+        // patch registers it as a plugin source that is scanned BEFORE plugins/. Jars here
+        // are standard Paper/Bukkit plugins (NOT Fabric-style pre-game mods). A verifiable
+        // load log is printed so the operator can confirm what was picked up.
+        logger.info("[VoltPur] plugin-pro/ active - priority plugin folder (scanned before plugins/ via paperweight patch).");
+        try {
+            java.io.File folder = new java.io.File("plugin-pro");
+            java.io.File[] jars = folder.listFiles((d, n) -> n.toLowerCase().endsWith(".jar"));
+            int count = jars == null ? 0 : jars.length;
+            if (count == 0) {
+                logger.info("[VoltPur] plugin-pro/: no .jar plugins present (drop performance plugins here to load them first).");
+            } else {
+                logger.info("[VoltPur] plugin-pro/: found " + count + " plugin jar(s) to load first:");
+                for (java.io.File j : jars) logger.info("[VoltPur]   - " + j.getName());
+            }
+        } catch (Exception e) {
+            logger.warning("[VoltPur] plugin-pro/ scan failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * After a /vo up update, the updater writes voltpur-installed.txt with the build
+     * identity. On the next boot we print it so the operator can CONFIRM the exact build
+     * that is now running (answers "which version did I actually move to?").
+     */
+    private static void printInstalledStamp(Logger logger) {
+        try {
+            java.io.File f = new java.io.File("voltpur-installed.txt");
+            if (!f.exists()) return;
+            java.util.Properties p = new java.util.Properties();
+            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) { p.load(in); }
+            String commit = p.getProperty("commit", "");
+            String shortSha = commit.length() >= 7 ? commit.substring(0, 7) : commit;
+            logger.info("  [VoltPur] 📌 Installed via /vo up -> build #" + p.getProperty("build", "?")
+                + " | run " + p.getProperty("run", "?")
+                + " | commit " + (shortSha.isEmpty() ? "?" : shortSha)
+                + (p.getProperty("exact", "true").equals("false") ? " (latest fallback)" : "")
+                + " | at " + p.getProperty("installed-at", "?"));
+            logger.info("  [VoltPur] ✅ Cross-check: the 'This server is running Purpur ...@<commit>' line above should show " + (shortSha.isEmpty() ? "the same commit" : shortSha) + ".");
+        } catch (Exception ignored) {}
     }
 }

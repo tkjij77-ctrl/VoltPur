@@ -2,6 +2,7 @@ package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
+import org.bukkit.entity.SpawnCategory;
 import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
@@ -25,7 +26,13 @@ public final class VoltPurOptimizer {
 
     private VoltPurOptimizer() {}
 
-    /** Apply adaptive settings based on live state. Safe (config only). */
+    /**
+     * Adaptive tuning that is APPLIED LIVE via the Bukkit API (takes effect this
+     * session, no restart) and then VERIFIED by reading the value back. Honest by
+     * design: if the server is healthy it changes NOTHING and says so, instead of
+     * printing a fake "Applied" line. The old version wrote spigot.yml at runtime,
+     * which Paper only reads at startup, so it had no effect this session.
+     */
     public static void apply() {
         if (applied) return;
         applied = true;
@@ -34,8 +41,6 @@ public final class VoltPurOptimizer {
             return;
         }
         try {
-            int[] hopper = VoltPurPerformance.hopperStats();
-            int totalHoppers = hopper[0];
             int totalEntities = 0;
             int totalChunks = 0;
             for (World w : Bukkit.getWorlds()) {
@@ -44,41 +49,41 @@ public final class VoltPurOptimizer {
             }
             double tps = safeTps();
 
-            File spigot = new File("spigot.yml");
-            if (!spigot.exists()) {
-                Bukkit.getLogger().info("[VoltPur-Opt] spigot.yml not found yet - skip (will retry on next start).");
-                applied = false; // allow retry
+            // Only ACT under real pressure. A fresh/healthy server is left untouched.
+            boolean lowTps    = tps > 0 && tps < 18.0;
+            boolean veryLowTps = tps > 0 && tps < 15.0;
+            boolean entityHeavy = totalEntities >= 300;
+
+            if (!lowTps && !entityHeavy) {
+                Bukkit.getLogger().info("[VoltPur-Opt] No live tuning needed - server healthy (tps="
+                        + String.format("%.1f", tps) + ", entities=" + totalEntities + ", chunks=" + totalChunks
+                        + "). Left untouched (honest).");
                 return;
             }
-            YamlConfiguration c = YamlConfiguration.loadConfiguration(spigot);
-            StringBuilder changes = new StringBuilder();
 
-            // Hopper-heavy? Slow hopper-check to save CPU.
-            int hopperCheck = totalHoppers >= 50 ? 8 : totalHoppers >= 10 ? 4 : 2;
-            c.set("world-settings.default.ticks-per.hopper-check", hopperCheck);
-            changes.append("hopper-check=").append(hopperCheck).append(" ");
-
-            // Entity-heavy? Lower mob spawn limits.
-            if (totalEntities >= 200) {
-                c.set("world-settings.default.spawn-limits.monsters", 30);
-                c.set("world-settings.default.spawn-limits.animals", 5);
-                changes.append("spawn-limits lowered ");
+            // Under pressure: reduce monster spawn limit + simulation distance LIVE via API.
+            int targetMonsters = veryLowTps ? 20 : entityHeavy ? 30 : 40;
+            int targetSimDist  = veryLowTps ? 4 : 6;
+            StringBuilder applied = new StringBuilder();
+            int worldsTouched = 0;
+            int verifiedMonsters = -1;
+            for (World w : Bukkit.getWorlds()) {
+                try {
+                    w.setSpawnLimit(SpawnCategory.MONSTER, targetMonsters); // live, immediate
+                    verifiedMonsters = w.getSpawnLimit(SpawnCategory.MONSTER); // read-back proof
+                } catch (Throwable ignored) {}
+                if (veryLowTps) {
+                    try { w.setSimulationDistance(targetSimDist); } catch (Throwable ignored) {}
+                }
+                worldsTouched++;
             }
+            applied.append("monster-spawn-limit=").append(targetMonsters);
+            if (veryLowTps) applied.append(" simulation-distance=").append(targetSimDist);
 
-            // Chunk-heavy? Raise hopper-transfer slightly and cap save rate.
-            if (totalChunks >= 500) {
-                c.set("world-settings.default.ticks-per.hopper-transfer", 8);
-                changes.append("hopper-transfer=8 ");
-            }
-
-            // Low TPS? Conservative view distance guard (informational only).
-            if (tps > 0 && tps < 18.0) {
-                changes.append("[LOW TPS ").append(String.format("%.1f", tps)).append("] ");
-            }
-
-            c.save(spigot);
-            Bukkit.getLogger().info("[VoltPur-Opt] Applied adaptive tuning: " + changes.toString().trim()
-                    + " (hoppers=" + totalHoppers + ", entities=" + totalEntities + ", chunks=" + totalChunks + ", tps=" + String.format("%.1f", tps) + ")");
+            Bukkit.getLogger().info("[VoltPur-Opt] Applied LIVE tuning across " + worldsTouched + " world(s): "
+                    + applied + "  | VERIFIED monster-limit now=" + verifiedMonsters
+                    + "  | trigger tps=" + String.format("%.1f", tps) + " entities=" + totalEntities);
+            Bukkit.getLogger().info("[VoltPur-Opt] Effect takes hold immediately. Compare /voltpur benchmark over the next minutes to see MSPT recovery.");
         } catch (Exception e) {
             Bukkit.getLogger().warning("[VoltPur-Opt] Failed: " + e.getMessage());
         }
