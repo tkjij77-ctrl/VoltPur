@@ -27,6 +27,11 @@ public class VoltPur {
         try { VoltPurPerformance.init(); } catch (Exception e) { logger.warning("Perf init failed: " + e.getMessage()); }
         try { VoltPurWorldCheck.init(); } catch (Exception e) { logger.warning("WorldCheck init failed: " + e.getMessage()); }
 
+        // Opt-in real modules (safe, pure server-side; no-op unless enabled in voltpur.yml).
+        try { VoltPurDiscord.init(); } catch (Exception e) { logger.warning("[VoltPur] Discord init failed: " + e.getMessage()); }
+        try { VoltPurBackup.init(); } catch (Exception e) { logger.warning("[VoltPur] Backup init failed: " + e.getMessage()); }
+        try { VoltPurResourcePack.init(); } catch (Exception e) { logger.warning("[VoltPur] ResourcePack init failed: " + e.getMessage()); }
+
         // Hardware detection + optional report (safe, read-only).
         try {
             VoltPurHardware.detect();

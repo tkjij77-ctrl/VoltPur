@@ -34,6 +34,9 @@ public final class VoltPurModules {
         register("Updater",             Status.ACTIVE);   // /vo up + /vo up list
         register("PAdminWebUI",         Status.ACTIVE);   // /padmin
         register("DynamicOptimizer",    Status.ACTIVE);   // adaptive spigot.yml tuning
+        register("DiscordWebhook",      Status.ACTIVE);   // VoltPurDiscord (opt-in webhook notifications)
+        register("WorldBackup",         Status.ACTIVE);   // VoltPurBackup (opt-in scheduled world zips)
+        register("ResourcePackHTTP",    Status.ACTIVE);   // VoltPurResourcePack (opt-in HTTP pack server)
 
         // ---- Partial ----
         register("AikarFlagsAuto",      Status.PARTIAL);  // recommends flags; not applied automatically
@@ -56,9 +59,6 @@ public final class VoltPurModules {
         register("ChunkLoading",        Status.PLANNED);  // C2ME not applied
         register("LightEngine",         Status.PLANNED);
         register("ConnectionStability", Status.PLANNED);
-        register("DiscordWebhook",      Status.PLANNED);
-        register("WorldBackup",         Status.PLANNED);
-        register("ResourcePackHTTP",    Status.PLANNED);
         register("PerWorldPlugin",      Status.PLANNED);
     }
 

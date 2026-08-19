@@ -16,10 +16,37 @@ import org.bukkit.plugin.Plugin;
 public final class VoltPurPlugin {
 
     private static volatile Plugin cached;
+    private static volatile Plugin internal;
 
     private VoltPurPlugin() {}
 
-    /** Returns a plugin that is ENABLED (schedulable), or null. Never caches disabled ones. */
+    /**
+     * Shared internal owner used when the server has NO real plugins (VoltPur runs
+     * inside the server, not as a plugin). This is EXACTLY how Purpur itself owns
+     * its own scheduled tasks (see BossBarTask / BeehiveTask, which schedule with
+     * `new MinecraftInternalPlugin()`), so the Bukkit scheduler accepts it and our
+     * modules actually run. isEnabled() returns true, which is all the scheduler
+     * needs.
+     */
+    private static Plugin internal() {
+        if (internal == null) {
+            synchronized (VoltPurPlugin.class) {
+                if (internal == null) {
+                    internal = new org.purpurmc.purpur.util.MinecraftInternalPlugin();
+                }
+            }
+        }
+        return internal;
+    }
+
+    /**
+     * Returns a schedulable, ENABLED plugin - NEVER null.
+     *
+     * Prefers a real enabled plugin if the admin installed one; otherwise falls
+     * back to the shared MinecraftInternalPlugin so VoltPur's scheduled modules
+     * (ItemLimiter, TPSMonitor, WorldStability, DynamicOptimizer, ...) run even on
+     * a server with 0 plugins - which was the root cause of them staying dormant.
+     */
     public static Plugin get() {
         if (cached != null && cached.isEnabled()) return cached;
         cached = null;
@@ -32,7 +59,8 @@ public final class VoltPurPlugin {
                 }
             }
         } catch (Throwable ignored) {}
-        return null;
+        // No real plugin available - use the internal owner (same as Purpur core tasks).
+        return internal();
     }
 
     /**
