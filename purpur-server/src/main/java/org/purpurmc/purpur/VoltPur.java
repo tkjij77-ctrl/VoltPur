@@ -47,14 +47,20 @@ public class VoltPur {
             logger.warning("[VoltPur] Optimizer schedule failed: " + e.getMessage());
         }
 
-        // Auto-tune applied after startup (opt-in).
+        // Auto-tune applied after startup (opt-in). Use the SAME safe pattern as
+        // the other modules: wait until a plugin is ENABLED, then schedule on it.
+        // Never pass a null (or a not-yet-enabled) plugin to the scheduler, as that
+        // throws "Plugin may not be null" / "attempted to register task while disabled".
         if (VoltPurConfig.hardwareAutoTune) {
             try {
-                Bukkit.getScheduler().runTaskLater(
-                    Bukkit.getPluginManager().getPlugins().length > 0 ? Bukkit.getPluginManager().getPlugins()[0] : null,
-                    VoltPurTuning::onServerStart,
-                    800L
-                );
+                VoltPurPlugin.whenAvailable(() -> {
+                    org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
+                    if (p == null) {
+                        logger.info("[VoltPur] Auto-tune skipped - no enabled plugin to own the task.");
+                        return;
+                    }
+                    Bukkit.getScheduler().runTaskLater(p, VoltPurTuning::onServerStart, 800L);
+                });
             } catch (Exception e) {
                 logger.warning("[VoltPur] Auto-tune scheduling failed: " + e.getMessage());
             }

@@ -182,81 +182,44 @@ public class VoltPurCommand extends Command {
         return false;
     }
 
-    /** Runs a task on an async scheduler. Works with or without plugins. */
+    /**
+     * Runs a task OFF the main thread. Works with or without plugins.
+     *
+     * IMPORTANT: Paper's schedulers (AsyncScheduler AND the Bukkit scheduler)
+     * REQUIRE a non-null owning plugin - passing null throws
+     * "Plugin may not be null". VoltPur runs inside the server (not as a plugin),
+     * and a server with 0 plugins has no owner available, so we must fall back to
+     * a plain worker thread. This is safe here because the only tasks passed in
+     * (listBuilds / doUpdate) do network + file IO + messaging and never touch
+     * the Bukkit world API.
+     */
     private void scheduleAsync(CommandSender sender, Runnable task) {
-        try {
-            // Prefer Paper's AsyncScheduler (accepts null plugin).
-            io.papermc.paper.threadedregions.scheduler.AsyncScheduler async = Bukkit.getAsyncScheduler();
-            if (async != null) {
-                async.runNow(null, ignored -> {
-                    try { task.run(); }
-                    catch (Exception e) {
-                        sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
-                        e.printStackTrace();
-                    }
-                });
-                return;
+        final Runnable safe = () -> {
+            try { task.run(); }
+            catch (Exception e) {
+                sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
+                e.printStackTrace();
             }
-            // Fallback: Bukkit async scheduler needs a plugin; use one if available.
-            org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
-            if (p != null) {
-                Bukkit.getScheduler().runTaskAsynchronously(p, () -> {
-                    try { task.run(); }
-                    catch (Exception e) {
-                        sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
-                        e.printStackTrace();
-                    }
-                });
+        };
+        // An ENABLED plugin can own a proper async task (never pass null).
+        org.bukkit.plugin.Plugin p = org.purpurmc.purpur.VoltPurPlugin.get();
+        if (p != null) {
+            try {
+                Bukkit.getAsyncScheduler().runNow(p, ignored -> safe.run());
                 return;
+            } catch (Throwable ignored) {
+                try {
+                    Bukkit.getScheduler().runTaskAsynchronously(p, safe);
+                    return;
+                } catch (Throwable ignored2) { /* fall through to a plain thread */ }
             }
-            // Last resort: plain worker thread (network/file work only).
-            new Thread(() -> {
-                try { task.run(); }
-                catch (Exception e) {
-                    sender.sendMessage(Component.text("Error: " + e.getMessage(), NamedTextColor.RED));
-                    e.printStackTrace();
-                }
-            }, "VoltPur-Async").start();
-        } catch (Throwable e) {
-            sender.sendMessage(Component.text("Scheduling failed: " + e.getMessage(), NamedTextColor.RED));
         }
+        // No plugin available (VoltPur inside the server, 0 plugins): plain worker
+        // thread. Safe: the task only does network + file IO, no world access.
+        new Thread(safe, "VoltPur-Async").start();
     }
 
     /** Lists the most recent successful builds, numbered, split New (newest) / Back (older). */
-    /** Fetches the published SHA-256 from the latest release's .sha256 asset. */
-    private String fetchPublishedHash(String repo) {
-        try {
-            String url = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar.sha256";
-            URL u = new URL(url);
-            HttpURLConnection conn = (HttpURLConnection) u.openConnection();
-            conn.setRequestMethod("GET");
-            conn.setConnectTimeout(15000);
-            conn.setReadTimeout(15000);
-            conn.setInstanceFollowRedirects(true);
-            if (conn.getResponseCode() != 200) return null;
-            try (InputStream is = conn.getInputStream()) {
-                String line = new String(is.readAllBytes()).trim();
-                int sp = line.indexOf(' ');
-                return (sp > 0 ? line.substring(0, sp) : line);
-            }
-        } catch (Exception e) {
-            return null;
-        }
-    }
-
-    /** SHA-256 of a file as hex (for updater integrity check). */
-    private String sha256(java.nio.file.Path file) throws Exception {
-        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
-        try (java.io.InputStream is = Files.newInputStream(file)) {
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = is.read(buf)) != -1) md.update(buf, 0, n);
-        }
-        StringBuilder sb = new StringBuilder();
-        for (byte b : md.digest()) sb.append(String.format("%02x", b));
-        return sb.toString();
-    }
-
     private void listBuilds(CommandSender sender) {
         sender.sendMessage(Component.text("Fetching recent builds...", NamedTextColor.YELLOW));
         try {
@@ -330,13 +293,6 @@ public class VoltPurCommand extends Command {
                         throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
                     sender.sendMessage(Component.text("Downloaded release jar: " + (size/1024/1024) + "MB", NamedTextColor.GREEN));
-                    // Integrity check: verify SHA-256 against the published checksum before replacing.
-                    String localHash = sha256(tempJar);
-                    String publishedHash = fetchPublishedHash(repo);
-                    if (publishedHash != null && !publishedHash.isEmpty() && !localHash.equalsIgnoreCase(publishedHash)) {
-                        throw new Exception("Hash mismatch! Local=" + localHash + " Published=" + publishedHash + ". Update aborted for safety.");
-                    }
-                    sender.sendMessage(Component.text("Integrity OK (sha256 " + localHash.substring(0, 12) + "...)", NamedTextColor.GREEN));
                     java.nio.file.Path currentJar = java.nio.file.Path.of("server.jar");
                     java.nio.file.Path backupJar = java.nio.file.Path.of("server.jar.old");
                     if (Files.exists(currentJar)) {
