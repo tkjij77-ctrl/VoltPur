@@ -108,7 +108,10 @@ public class VoltPur {
         logger.info("[VoltPur] plugin-pro/ active - priority plugin folder (scanned before plugins/ via paperweight patch).");
         try {
             java.io.File folder = new java.io.File("plugin-pro");
-            java.io.File[] jars = folder.listFiles((d, n) -> n.toLowerCase().endsWith(".jar"));
+            java.io.File[] jars = folder.listFiles((d, n) -> n.toLowerCase(java.util.Locale.ROOT).endsWith(".jar"));
+            if (jars != null) {
+                java.util.Arrays.sort(jars, java.util.Comparator.comparing(java.io.File::getName, String.CASE_INSENSITIVE_ORDER));
+            }
             int count = jars == null ? 0 : jars.length;
             if (count == 0) {
                 logger.info("[VoltPur] plugin-pro/: no .jar plugins present (drop performance plugins here to load them first).");

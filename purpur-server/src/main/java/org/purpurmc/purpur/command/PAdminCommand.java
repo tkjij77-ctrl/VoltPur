@@ -81,7 +81,7 @@ public class PAdminCommand extends Command {
             + "<body><h1>[VoltPur] VoltPur PAdmin</h1>"
             + "<p>Version: " + VoltPur.VERSION + " (MC " + VoltPur.MC_VERSION + ")</p>"
             + "<p>Real modules: " + VoltPurModules.activeCount() + "/" + VoltPurModules.totalCount() + " ACTIVE</p>"
-            + "<p>plugin-pro/: organisational (Phase 1) — Paper loads from plugins/</p>"
+            + "<p>plugin-pro/: priority Paper plugins — scanned before plugins/; deep bytecode changes require a Java agent</p>
             + "<p>Worlds: " + Bukkit.getWorlds().size() + " | Players: " + Bukkit.getOnlinePlayers().size() + "</p>"
             + "<hr><h3>Modules (honest status)</h3><ul>" + mods + "</ul>"
             + "<hr><p>API: <a href='/api/status'>/api/status</a> (JSON)</p></body></html>";
