@@ -50,6 +50,9 @@ tools/verify/run-verify.sh
 - استرجاع صلاحية التنفيذ (`100755`) لـ `gradlew` و`scripts/*.sh`.
 - `build-fork.sh` أُصلح ليطابق CI (Java 25 + `:purpur-server:createPaperclipJar` + مسار الجار الصحيح).
 
+### ✅ إقلاع حقيقي (smoke test)
+شُغّل الجار الناتج فعليًا (JDK 25): `Done (13.181s)!` بنسخة `26.2-DEV-fix/phase-0-1-hardening@768d513`، و`/voltpur modules` طبع 26 موديول بحالاتها الحقيقية (المدمِّرة كلها `[disabled]`)، و`/voltpur status` أبلغ `MSPT avg: 0.29 ms` و«البناء المثبَّت: غير متتبَّع» بصدق. (سيرفر فارغ ⇒ **ليس** قياس أداء.)
+
 ### ❌ لم يُنفَّذ في هذا الإصدار (بصدق)
 - ~~بناء السيرفر الفعلي~~ → **تم**: CI run **#66** على الفرع `fix/phase-0-1-hardening` (`1cbaa68e`) = `success` بجافا 25، والناتج `VoltPur-26.2.jar` **62 MiB** (`Java archive data (JAR)`)، وخطوة الـ Release تخطّتها CI عمدًا لأنها مقيّدة بـ `ver/26.2`.
 - تشغيل سيرفر Paper اختباريًا (smoke test إقلاع headless) — مُقترح للمرحلة 2.

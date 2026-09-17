@@ -47,6 +47,24 @@ RESULT: PASS
 
 الخلاصة: الشجرة المُصلَّبة **تبني فعليًا** بجافا 25 وتنتج JAR سليمًا، وليس فقط «تترجم مقابل stubs».
 
+## smoke test حقيقي (إقلاع سيرفر فعلي)
+شغّلنا الجار الناتج فعليًا (JDK 25، عالم flat، ‎`-Xmx768M`) حتى الإقلاع الكامل ثم أوقفناه بالأمر:
+
+| الفحص | النتيجة الفعلية من اللوج |
+|---|---|
+| الإقلاع | `Done (13.181s)!` |
+| هوية البناء | `This server is running Purpur version 26.2-DEV-fix/phase-0-1-hardening@768d513` ⇒ جار مبني من **رأس الفرع** |
+| سطر الصدق | `[VoltPur] Modules: 13 implemented, 4 partial, 9 planned` |
+| الوضع الأمني | `item-limiter=off optimizer=off padmin=off destructive-reinstall=off update-checksum=required` |
+| الموديولات عند الإقلاع | كل الموديولات المدمِّرة أعلنت تعطيلها بنفسها: `ItemLimiter: disabled (opt-in)` · `Dynamic optimizer is disabled` · `PAdmin`/`Backup`/`ResourcePack`/`Discord` = disabled |
+| `/voltpur modules` | 26 سطرًا بحالات حقيقية، منها `ItemLimiter - ACTIVE [disabled]`, `PAdminWebUI - ACTIVE [disabled]`, `DiscordWebhook - ACTIVE [opt-in]`, و9 موديولات `PLANNED - not implemented` |
+| `/voltpur status` | `TPS: 20.00/20.00/20.00 | MSPT avg: 0.29 ms` + `Installed build: not tracked (no voltpur-installed.txt)` — أي لا يدّعي تحديثًا لم يحدث |
+| عوالم | 3 عوالم، والقراءة فقط: `Loaded worlds: 3 (overworld=not named 'world', nether=OK, end=OK)` |
+
+**ما لم يثبته هذا الاختبار:** لا قياس أداء تحت حمل (السيرفر كان فارغًا: 0 لاعبين، TPS 20 ثابت شيء متوقع)، ولا اختبار لمنطق `/vo up` الفعلي ضد GitHub، ولا اختبار عملاء حقيقيين.
+
+**ملاحظة تجميلية (لم تُصلَّح):** الإيموجي في رسائل الكونسول تُطبع `?` لما ترميز الكونسول مش UTF-8.
+
 ## ما لم يُنفَّذ في هذه الجلسة (بوضوح)
 - **تشغيل سيرفر حقيقي / smoke test إقلاع**: لم يُشغَّل بعد (لا يتحقق منه البناء وحده). الـ harness لا يعوّض ذلك.
 - CI smoke test (إقلاع headless في Actions) — مقترح في المرحلة 2.
