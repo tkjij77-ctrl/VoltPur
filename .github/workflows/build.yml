@@ -29,13 +29,26 @@ jobs:
           git config --global user.email "voltpur@builder.dev"
           git config --global user.name "VoltPur Builder"
 
+      # The patch/decompile pipeline is occasionally non-deterministic: the same
+      # commit can fail one run and pass the next (observed on 40474803: run #69
+      # failed once, run #70 passed with identical sources). Treat both steps as
+      # retry-once, with a clean re-apply of the generated sources in between.
+      # NOTE: this only changes what happens AFTER a failure - on success the same
+      # commands run in the same order as before.
       - name: 📦 Apply Patches
         run: |
           chmod +x gradlew
+          if ./gradlew applyAllPatches --stacktrace; then exit 0; fi
+          echo "::warning title=Flaky patch pipeline::applyAllPatches failed - cleaning generated sources and retrying once"
+          rm -rf purpur-server/src/minecraft
           ./gradlew applyAllPatches --stacktrace
 
       - name: 🏗️ Build Paperclip JAR
         run: |
+          if ./gradlew :purpur-server:createPaperclipJar --stacktrace; then exit 0; fi
+          echo "::warning title=Flaky build pipeline::build failed - re-applying patches cleanly and retrying once"
+          rm -rf purpur-server/src/minecraft purpur-server/build
+          ./gradlew applyAllPatches --stacktrace
           ./gradlew :purpur-server:createPaperclipJar --stacktrace
 
       - name: 📝 Prepare Artifacts
