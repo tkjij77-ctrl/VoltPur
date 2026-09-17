@@ -27,7 +27,7 @@
 tools/verify/run-verify.sh
 == 1/3 compiling 48 files (JDK 21) ==   compile OK (62 classes)
 == 2/3 core behaviour checks ==         43 PASS / 0 FAIL
-== 3/3 updater / downloader checks ==   20 PASS / 0 FAIL
+== 3/3 updater / downloader checks ==   31 PASS / 0 FAIL   (74 total)
 RESULT: PASS
 ```
 الـ harness موجود داخل المستودع (`tools/verify/`) لأي حد يقدر يعيده: يترجم ملفات VoltPur الحقيقية مقابل stubs للواجهة، ثم يفحص السلوك (افتراضات آمنة، كومنتات `server.properties`، قائمة discord، عدّادات Guard، رفض روابط SSRF، تحقق الأرشيف المُنزَّل، SHA-256 معروف).

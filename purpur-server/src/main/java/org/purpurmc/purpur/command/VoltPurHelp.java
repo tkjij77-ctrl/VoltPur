@@ -50,7 +50,8 @@ public class VoltPurHelp extends Command {
         sender.sendMessage("");
         sender.sendMessage("§6Updates §7(verified + reversible):");
         sender.sendMessage("§b/vo up list §7- recent builds (cached to disk, survives restarts)");
-        sender.sendMessage("§b/vo up <number> §7- download + verify (SHA-256) and show the plan");
+        sender.sendMessage("§b/vo up <number> §7- the list number (1 = newest) or the build number, e.g. 66");
+        sender.sendMessage("§7   downloads + verifies (SHA-256) and shows the plan - nothing is applied yet");
         sender.sendMessage("§b/vo up confirm §7- apply the staged build  §8|  §b/vo up cancel §7- abort");
         sender.sendMessage("§b/vo rollback §7- restore the previous server jar");
         sender.sendMessage("");

@@ -44,6 +44,7 @@ import java.util.zip.ZipFile;
  *     deleting generated libraries/versions/cache is opt-in
  *     (update.clean-reinstall: true) and is printed as an explicit list first.
  *  3. TWO-PHASE INSTALL. "/vo up <n>" only downloads + verifies + prints a plan.
+ *     <n> accepts the list position or the build number.
  *     The install requires "/vo up confirm", so an accidental number can never
  *     overwrite a live jar.
  *  4. ROLLBACK EXISTS. The previous jar is kept as <jar>.bak-<timestamp> and
@@ -83,6 +84,34 @@ public final class VoltPurUpdater {
         public String shortSha() {
             return sha.length() >= 7 ? sha.substring(0, 7) : sha;
         }
+    }
+
+    /**
+     * Turns what the user typed into a build. Accepts BOTH the 1-based position in
+     * the list ("1" = newest, what /vo up list shows) and the real build number
+     * ("66"). This exists because the old code accepted only the position, so
+     * "/vo up 66" - the most natural thing to type after reading "build #66" -
+     * answered "Invalid number". The position wins when it is in range, so the
+     * previously documented behaviour still works unchanged.
+     *
+     * @return the selected build, or null when the argument matches neither.
+     */
+    static BuildInfo resolveBuild(List<BuildInfo> builds, String selection) {
+        if (builds == null || builds.isEmpty()) return null;
+        if (selection == null || selection.isBlank() || selection.equalsIgnoreCase("latest")) return builds.get(0);
+        String trimmed = selection.trim();
+        try {
+            int index = Integer.parseInt(trimmed);
+            if (index >= 1 && index <= builds.size()) return builds.get(index - 1);
+        } catch (NumberFormatException notANumber) {
+            // fall through: maybe the user typed a tag/sha fragment
+        }
+        for (BuildInfo build : builds) {
+            if (build.runNumber().equals(trimmed)) return build;                 // "/vo up 66"
+            if (build.tag().equalsIgnoreCase(trimmed)) return build;             // "/vo up build-66-..."
+            if (build.shortSha().equalsIgnoreCase(trimmed)) return build;        // "/vo up b7def48"
+        }
+        return null;
     }
 
     private record Plan(BuildInfo build, long bytes, String localSha, String publishedSha, boolean checksumVerified,
@@ -141,7 +170,7 @@ public final class VoltPurUpdater {
             sender.sendMessage(Component.text("  [" + (i + 1) + "] build #" + build.runNumber()
                     + "  " + build.shortSha() + "  " + build.published(), i == 0 ? NamedTextColor.GREEN : NamedTextColor.GRAY));
         }
-        sender.sendMessage(Component.text("Stage a build with /vo up <number> - nothing is installed until /vo up confirm.", NamedTextColor.AQUA));
+        sender.sendMessage(Component.text("Stage a build with /vo up <number> - the list number (1 = newest) or the build number. Nothing is installed until /vo up confirm.", NamedTextColor.AQUA));
     }
 
     private static List<BuildInfo> fetchBuilds() throws Exception {
@@ -206,22 +235,11 @@ public final class VoltPurUpdater {
                 sender.sendMessage(Component.text("No builds cached. Run /vo up list first.", NamedTextColor.YELLOW));
                 return;
             }
-            BuildInfo build;
-            if (selection == null || selection.isBlank() || selection.equalsIgnoreCase("latest")) {
-                build = builds.get(0);
-            } else {
-                int index;
-                try {
-                    index = Integer.parseInt(selection.trim());
-                } catch (NumberFormatException notANumber) {
-                    sender.sendMessage(Component.text("Usage: /vo up <number> | /vo up list | /vo up confirm", NamedTextColor.RED));
-                    return;
-                }
-                if (index < 1 || index > builds.size()) {
-                    sender.sendMessage(Component.text("Invalid number. Use /vo up list to see available builds.", NamedTextColor.RED));
-                    return;
-                }
-                build = builds.get(index - 1);
+            BuildInfo build = resolveBuild(builds, selection);
+            if (build == null) {
+                sender.sendMessage(Component.text("No build matches '" + selection
+                        + "'. Use /vo up list - you can type the list number (1 = newest) or the build number.", NamedTextColor.RED));
+                return;
             }
 
             sender.sendMessage(Component.text("[VoltPur] Selected build #" + build.runNumber()
@@ -281,7 +299,7 @@ public final class VoltPurUpdater {
     public static void printPlan(CommandSender sender) {
         Plan plan = pending;
         if (plan == null) {
-            sender.sendMessage(Component.text("Nothing staged. Use /vo up list then /vo up <number>.", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("Nothing staged. Use /vo up list then /vo up <number> (or the build number).", NamedTextColor.YELLOW));
             return;
         }
         sender.sendMessage(Component.text("=== Update plan (nothing done yet) ===", NamedTextColor.GOLD));
@@ -314,7 +332,7 @@ public final class VoltPurUpdater {
     public static void confirm(CommandSender sender) {
         Plan plan = pending;
         if (plan == null) {
-            sender.sendMessage(Component.text("Nothing staged. Use /vo up list then /vo up <number>.", NamedTextColor.YELLOW));
+            sender.sendMessage(Component.text("Nothing staged. Use /vo up list then /vo up <number> (or the build number).", NamedTextColor.YELLOW));
             return;
         }
         try {

@@ -115,6 +115,24 @@ public final class VerifyCommand {
         check("defaults to server.jar when nothing else exists",
                 detected != null && detected.getFileName().toString().equals("server.jar"), String.valueOf(detected));
 
+        System.out.println("[updater] build selection accepts BOTH the list position and the build number");
+        List<VoltPurUpdater.BuildInfo> builds = List.of(
+                new VoltPurUpdater.BuildInfo("build-66-b7def480e4cf157dae5322b562ed880ac7569854", "66", "b7def480e4cf157dae5322b562ed880ac7569854", "2026-09-17T16:36:26Z"),
+                new VoltPurUpdater.BuildInfo("build-65-f718a8cf47cdcb55f62f046736acbbb5d8452022", "65", "f718a8cf47cdcb55f62f046736acbbb5d8452022", "2026-08-19T17:21:42Z"),
+                new VoltPurUpdater.BuildInfo("build-64-4fa82e8e332d51184e90f4cb096c977274ee0562", "64", "4fa82e8e332d51184e90f4cb096c977274ee0562", "2026-08-19T11:45:11Z"));
+        check("position 1 = newest", "66".equals(VoltPurUpdater.resolveBuild(builds, "1").runNumber()), "wrong build");
+        check("position 3 = oldest listed", "64".equals(VoltPurUpdater.resolveBuild(builds, "3").runNumber()), "wrong build");
+        check("build number 66 works (the bug we just fixed)",
+                VoltPurUpdater.resolveBuild(builds, "66") != null && "66".equals(VoltPurUpdater.resolveBuild(builds, "66").runNumber()), "still rejected");
+        check("build number 65 works", "65".equals(VoltPurUpdater.resolveBuild(builds, "65").runNumber()), "rejected");
+        check("'latest' = newest", "66".equals(VoltPurUpdater.resolveBuild(builds, "latest").runNumber()), "wrong");
+        check("blank = newest", "66".equals(VoltPurUpdater.resolveBuild(builds, "  ").runNumber()), "wrong");
+        check("tag works", "64".equals(VoltPurUpdater.resolveBuild(builds, "build-64-4fa82e8e332d51184e90f4cb096c977274ee0562").runNumber()), "rejected");
+        check("short sha works", "65".equals(VoltPurUpdater.resolveBuild(builds, "f718a8c").runNumber()), "rejected");
+        check("nonsense is rejected", VoltPurUpdater.resolveBuild(builds, "999") == null, "accepted 999");
+        check("old build numbers outside the list are rejected", VoltPurUpdater.resolveBuild(builds, "12") == null, "accepted 12");
+        check("empty list is handled", VoltPurUpdater.resolveBuild(List.of(), "1") == null, "no null return");
+
         System.out.println("[updater] human sizes");
         check("formats MiB", VoltPurUpdater.human(80L * 1024 * 1024).contains("MiB"), VoltPurUpdater.human(80L * 1024 * 1024));
 
