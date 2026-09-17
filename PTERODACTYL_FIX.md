@@ -25,7 +25,7 @@ unzip VoltPur-26.2-Paperclip.zip
 ```
 
 ### 2. الرفع عبر متصفح Pterodactyl بيقطع الملف
-جار Paperclip بحجم عشرات الميجابايت، والرفع من المتصفح ممكن يفشل أو ينتج ملفًا ناقصًا.
+جار Paperclip بحجم **~62 MiB** (قياس فعلي من CI: run #66 — `ls -lh` على الـ runner)، والرفع من المتصفح ممكن يفشل أو ينتج ملفًا ناقصًا.
 
 **الحل:** استخدم SFTP:
 - Host: IP السيرفر
@@ -57,7 +57,7 @@ java -jar server.jar --help
 ```bash
 chmod +x server.jar
 ls -lh server.jar
-# المفروض عشرات الميجابايت. لو 0 bytes أو بضع KB => الملف/الرفع ناقص
+# المفروض ~62 MiB. لو 0 bytes أو بضع KB => الملف/الرفع ناقص
 sha256sum server.jar   # وقارنها مع VoltPur-26.2.jar.sha256
 ```
 
@@ -78,7 +78,7 @@ java -Xms128M -Xmx{{SERVER_MEMORY}}M --add-modules=jdk.incubator.vector -Dtermin
 **تأكد:**
 - `server.jar` = الـ VoltPur JAR الجديد (فك الضغط الأول!)
 - Java 25
-- الحجم عشرات الميجابايت (وليس KB) — القيمة الدقيقة ظاهرة في صفحة الإصدار
+- الحجم ~62 MiB (وليس KB) — والقياس موثّق من CI run #66
 
 ## اختبار حقيقي (بدون مخرجات مُختلقة)
 

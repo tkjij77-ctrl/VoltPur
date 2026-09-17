@@ -33,8 +33,22 @@ RESULT: PASS
 الـ harness موجود داخل المستودع (`tools/verify/`) لأي حد يقدر يعيده: يترجم ملفات VoltPur الحقيقية مقابل stubs للواجهة، ثم يفحص السلوك (افتراضات آمنة، كومنتات `server.properties`، قائمة discord، عدّادات Guard، رفض روابط SSRF، تحقق الأرشيف المُنزَّل، SHA-256 معروف).
 **وأمسك خللين في كودي الجديد قبل الكوميت:** عدّاد `Guard.runs()` لم يكن يزيد أبدًا، ومسار فشل تحميل البلجن كان صامتًا. التفاصيل في `CHANGELOG.md` (بندان 16 و17).
 
+## تحقق بالبناء الحقيقي (CI، Java 25)
+الفرع `fix/phase-0-1-hardening` مدفوع على المستودع، والبناء الرسمي اشتغل عليه:
+| البند | القيمة |
+|---|---|
+| Run | **#66** — `workflow_dispatch` على `1cbaa68e` |
+| النتيجة | `completed / success` (~7.5 دقيقة، 15:38→15:45 UTC) |
+| الخطوات | Checkout ✓ · Setup Java 25 ✓ · Apply Patches ✓ · Build Paperclip JAR ✓ · Prepare Artifacts ✓ · Upload JAR ✓ |
+| **Create Release** | **skipped** ✅ (الخطوة مقيّدة بـ `refs/heads/ver/26.2` — لم يُنشأ إصدار من فرع مراجعة) |
+| الناتج | `VoltPur-26.2.jar` = **62 MiB** · `server.jar` = 62 MiB · `VoltPur-26.2.jar.sha256` · `file` يقول: `Java archive data (JAR)` |
+| الـ artifact | `VoltPur-26.2-Paperclip` (185.0 MiB — يشمل 3 نسخ + الجار الأصلي) |
+| `ver/26.2` | **لم يُلمس** — لسه `f718a8c` |
+
+الخلاصة: الشجرة المُصلَّبة **تبني فعليًا** بجافا 25 وتنتج JAR سليمًا، وليس فقط «تترجم مقابل stubs».
+
 ## ما لم يُنفَّذ في هذه الجلسة (بوضوح)
-- **بناء/تشغيل سيرفر حقيقي**: `./gradlew createPaperclipJar` ما اشتغلش هنا (لا JDK 25 ولا Gradle في بيئة العمل)، وكذلك لا smoke test إقلاع. الـ harness لا يعوّض ذلك.
+- **تشغيل سيرفر حقيقي / smoke test إقلاع**: لم يُشغَّل بعد (لا يتحقق منه البناء وحده). الـ harness لا يعوّض ذلك.
 - CI smoke test (إقلاع headless في Actions) — مقترح في المرحلة 2.
 - `Claim → Probe` (توليد الأرقام آليًا في CI) — المرحلة 2.
 - تحويل الأدوات إلى بلجن مستقل `VoltPur.jar` — قرار استراتيجي (المرحلة 3).

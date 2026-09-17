@@ -51,7 +51,7 @@ tools/verify/run-verify.sh
 - `build-fork.sh` أُصلح ليطابق CI (Java 25 + `:purpur-server:createPaperclipJar` + مسار الجار الصحيح).
 
 ### ❌ لم يُنفَّذ في هذا الإصدار (بصدق)
-- **بناء السيرفر الفعلي**: لم يُشغَّل `./gradlew createPaperclipJar` في جلسة العمل (لا JDK 25 ولا Gradle في البيئة) — التحقق تم عبر `tools/verify/` الذي يترجم المصادر بـ JDK 21 مقابل stubs. البناء الحقيقي يبقى على CI/`build-fork.sh`.
+- ~~بناء السيرفر الفعلي~~ → **تم**: CI run **#66** على الفرع `fix/phase-0-1-hardening` (`1cbaa68e`) = `success` بجافا 25، والناتج `VoltPur-26.2.jar` **62 MiB** (`Java archive data (JAR)`)، وخطوة الـ Release تخطّتها CI عمدًا لأنها مقيّدة بـ `ver/26.2`.
 - تشغيل سيرفر Paper اختباريًا (smoke test إقلاع headless) — مُقترح للمرحلة 2.
 - توليد الأرقام آليًا (Claim→Probe) · تحويل الأدوات إلى بلجن مستقل · **أي patch NMS**.
 
