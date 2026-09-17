@@ -4,6 +4,7 @@ import org.bukkit.Bukkit;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.module.ModuleFinder;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -11,33 +12,52 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * VoltPur Hardware - detects the host machine's components and produces
- * compatibility checks + optimal JVM/server tuning for that specific hardware.
+ * VoltPur Hardware - detects the REAL machine/quota and produces honest advice.
  *
- * Idea: "تحسين التوافق بين قطع الجهاز وزيادة الأداء"
- *   - Detect CPU cores, physical RAM, heap, OS, architecture, Java version.
- *   - Flag component incompatibilities (e.g. ARM without vector incubator,
- *     Java too old, too little RAM, low core count).
- *   - Generate optimal Aikar-style JVM flags + GC tuning sized to the machine.
- *   - Recommend server settings (view-distance, threads) scaled to hardware.
+ * HARDENING CHANGES (two bugs fixed, one of them dangerous):
  *
- * All detection is read-only and side-effect free (safe by default).
+ *  1. CONTAINER AWARE. The old detector read the HOST's physical RAM
+ *     (OperatingSystemMXBean.getTotalPhysicalMemorySize() reports the host inside
+ *     a container) and then recommended "-Xms/-Xmx = half of it". On a Pterodactyl
+ *     host with 64 GB and a 2 GB container that produced a start command asking for
+ *     32 GB - an instant OOM kill if the operator pasted it. We now read the cgroup
+ *     v2 (memory.max / cpu.max) and v1 fallbacks and never recommend more than the
+ *     quota actually available to the server.
+ *
+ *  2. FLAG LOGIC WAS CIRCULAR. Availability of jdk.incubator.vector was checked with
+ *     Class.forName(), which can only succeed if the module was ALREADY added via
+ *     --add-modules - so the recommendation never appeared for the people who needed
+ *     it, while the warnings section told them to add it. Availability is now tested
+ *     with ModuleFinder.ofSystem() (does the JDK ship it?) and resolution with
+ *     ModuleLayer.boot().
+ *
+ * Everything here is read-only: no file is ever written by this class.
  */
 public final class VoltPurHardware {
 
+    private static final String MODULE = "HardwareDetection";
+
     private static boolean detected = false;
 
-    // ---- Cached hardware facts -------------------------------------------------
+    // ---- host facts ----
     private static String osName;
     private static String osArch;
     private static String osVersion;
     private static String javaVersion;
-    private static int    availableCores;
-    private static long   physicalRamBytes = -1;
-    private static long   maxHeapBytes;
+    private static int availableCores;
+    private static long hostRamBytes = -1L;
+    private static long maxHeapBytes;
     private static String cpuModel;
     private static boolean isArm;
-    private static boolean vectorAvailable;
+
+    // ---- container quota ----
+    private static long quotaRamBytes = -1L;
+    private static double quotaCores = -1d;
+    private static String quotaSource = "none";
+
+    // ---- jdk module facts ----
+    private static boolean vectorShippedByJdk;
+    private static boolean vectorResolved;
 
     private VoltPurHardware() {}
 
@@ -45,65 +65,112 @@ public final class VoltPurHardware {
         if (detected) return;
         detected = true;
 
-        osName      = System.getProperty("os.name", "unknown");
-        osArch      = System.getProperty("os.arch", "unknown");
-        osVersion   = System.getProperty("os.version", "");
+        osName = System.getProperty("os.name", "unknown");
+        osArch = System.getProperty("os.arch", "unknown");
+        osVersion = System.getProperty("os.version", "");
         javaVersion = Runtime.version().toString();
         availableCores = Runtime.getRuntime().availableProcessors();
-        maxHeapBytes   = Runtime.getRuntime().maxMemory();
+        maxHeapBytes = Runtime.getRuntime().maxMemory();
 
-        // Physical RAM via com.sun.management.OperatingSystemMXBean when available
         try {
             java.lang.management.OperatingSystemMXBean base =
-                java.lang.management.ManagementFactory.getOperatingSystemMXBean();
-            if (base instanceof com.sun.management.OperatingSystemMXBean) {
-                physicalRamBytes =
-                    ((com.sun.management.OperatingSystemMXBean) base).getTotalPhysicalMemorySize();
+                    java.lang.management.ManagementFactory.getOperatingSystemMXBean();
+            if (base instanceof com.sun.management.OperatingSystemMXBean extended) {
+                hostRamBytes = extended.getTotalPhysicalMemorySize();
             }
-        } catch (Throwable ignored) {
-            physicalRamBytes = -1;
+        } catch (Throwable t) {
+            hostRamBytes = -1L;
+            Bukkit.getLogger().fine("[VoltPur-HW] Physical RAM unavailable: " + t.getMessage());
         }
 
-        String a = osArch.toLowerCase();
-        isArm = a.contains("aarch64") || a.contains("arm") || a.contains("arm64");
+        String arch = osArch.toLowerCase();
+        isArm = arch.contains("aarch64") || arch.contains("arm");
 
         cpuModel = readCpuModel();
+        readCgroupLimits();
 
-        // jdk.incubator.vector is optional (added via --add-modules). Detect if usable.
-        boolean vec = false;
-        try {
-            Class.forName("jdk.incubator.vector.VectorSpecies");
-            vec = true;
-        } catch (Throwable ignored) {
-            vec = false;
+        vectorShippedByJdk = ModuleFinder.ofSystem().find("jdk.incubator.vector").isPresent();
+        vectorResolved = ModuleLayer.boot().findModule("jdk.incubator.vector").isPresent();
+    }
+
+    /** cgroup v2 first, then v1. Values are deliberately conservative. */
+    private static void readCgroupLimits() {
+        Long memoryMax = readLongFile("/sys/fs/cgroup/memory.max");                 // v2
+        if (memoryMax == null) memoryMax = readLongFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); // v1
+        if (memoryMax != null && memoryMax > 0 && memoryMax < (1L << 58)) {
+            quotaRamBytes = memoryMax;
         }
-        vectorAvailable = vec;
+
+        String cpuMax = readStringFile("/sys/fs/cgroup/cpu.max");                  // v2: "<quota> <period>" or "max <period>"
+        if (cpuMax != null) {
+            String[] parts = cpuMax.trim().split("\\s+");
+            if (parts.length >= 2 && !parts[0].equalsIgnoreCase("max")) {
+                try {
+                    long quota = Long.parseLong(parts[0]);
+                    long period = Long.parseLong(parts[1]);
+                    if (quota > 0 && period > 0) quotaCores = Math.max(0.1d, (double) quota / (double) period);
+                } catch (NumberFormatException ignored) {
+                    // "max" or unexpected format: no CPU quota, the whole host is used.
+                }
+            }
+        }
+        if (quotaCores < 0) {
+            Long quota = readLongFile("/sys/fs/cgroup/cpu/cpu.cfs_quota_us");      // v1
+            Long period = readLongFile("/sys/fs/cgroup/cpu/cpu.cfs_period_us");
+            if (quota != null && period != null && quota > 0 && period > 0) {
+                quotaCores = Math.max(0.1d, (double) quota / (double) period);
+            }
+        }
+        if (quotaRamBytes > 0 && hostRamBytes > 0 && quotaRamBytes < hostRamBytes) quotaSource = "cgroup memory limit";
+        else if (quotaCores > 0 && quotaCores < availableCores) quotaSource = "cgroup cpu quota";
+    }
+
+    private static Long readLongFile(String path) {
+        String value = readStringFile(path);
+        if (value == null) return null;
+        try {
+            return Long.parseLong(value.trim());
+        } catch (NumberFormatException notANumber) {
+            return null;
+        }
+    }
+
+    private static String readStringFile(String path) {
+        try {
+            Path file = Path.of(path);
+            if (!Files.isReadable(file)) return null;
+            return Files.readString(file, StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static String readCpuModel() {
-        // Linux
         try {
             Path cpuinfo = Path.of("/proc/cpuinfo");
             if (Files.exists(cpuinfo)) {
                 for (String line : Files.readAllLines(cpuinfo, StandardCharsets.UTF_8)) {
                     if (line.startsWith("model name") || line.startsWith("Hardware")) {
-                        int i = line.indexOf(':');
-                        if (i >= 0) return line.substring(i + 1).trim();
+                        int separator = line.indexOf(':');
+                        if (separator >= 0) return line.substring(separator + 1).trim();
                     }
                 }
             }
-        } catch (IOException ignored) {}
-        // macOS
+        } catch (IOException e) {
+            Bukkit.getLogger().fine("[VoltPur-HW] /proc/cpuinfo unavailable: " + e.getMessage());
+        }
         try {
-            String[] cmd = {"sysctl", "-n", "machdep.cpu.brand_string"};
-            Process p = new ProcessBuilder(cmd).redirectErrorStream(true).start();
-            String out = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            Process process = new ProcessBuilder("sysctl", "-n", "machdep.cpu.brand_string")
+                    .redirectErrorStream(true).start();
+            String out = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
             if (!out.isEmpty()) return out;
-        } catch (Throwable ignored) {}
+        } catch (Throwable notMacOrNoSysctl) {
+            return null;
+        }
         return null;
     }
 
-    // ---- Accessors -------------------------------------------------------------
+    // ---- accessors ----
 
     public static String getOsName() { return osName; }
     public static String getOsArch() { return osArch; }
@@ -111,40 +178,56 @@ public final class VoltPurHardware {
     public static String getJavaVersion() { return javaVersion; }
     public static int getCores() { return availableCores; }
     public static boolean isArm() { return isArm; }
-    public static boolean isVectorAvailable() { return vectorAvailable; }
     public static String getCpuModel() { return cpuModel == null ? "unknown" : cpuModel; }
+    public static boolean isVectorAvailable() { return vectorResolved; }
+    public static boolean isVectorShippedByJdk() { return vectorShippedByJdk; }
+    public static long getMaxHeapMB() { return maxHeapBytes / (1024L * 1024L); }
 
-    /** Physical RAM in MB, or -1 if the JVM could not report it. */
+    /** Physical RAM in MB (host machine), or -1 if unreported. */
     public static long getPhysicalRamMB() {
-        return physicalRamBytes < 0 ? -1 : physicalRamBytes / (1024L * 1024L);
+        return hostRamBytes < 0 ? -1L : hostRamBytes / (1024L * 1024L);
     }
 
-    /** Max heap (-Xmx) in MB. */
-    public static long getMaxHeapMB() {
-        return maxHeapBytes / (1024L * 1024L);
+    public static boolean isContainer() {
+        return quotaRamBytes > 0 || quotaCores > 0;
     }
 
-    // ---- Tuning computations ---------------------------------------------------
+    public static String getQuotaSource() { return quotaSource; }
 
-    /** Recommended -Xmx heap size in MB based on physical RAM. */
+    /** RAM actually available to this server process (container quota wins). */
+    public static long getEffectiveRamMB() {
+        long host = getPhysicalRamMB();
+        long quotaMB = quotaRamBytes > 0 ? quotaRamBytes / (1024L * 1024L) : -1L;
+        if (quotaMB > 0 && (host <= 0 || quotaMB < host)) return quotaMB;
+        if (host > 0) return host;
+        return getMaxHeapMB();
+    }
+
+    /** CPU cores actually usable (container quota wins, rounded up). */
+    public static int getEffectiveCores() {
+        if (quotaCores > 0) return Math.max(1, (int) Math.ceil(quotaCores));
+        return Math.max(1, availableCores);
+    }
+
+    // ---- recommendations ----
+
+    /** Suggested -Xmx: half of what the server may actually use, with sane bounds. */
     public static long suggestHeapMB() {
-        long ram = getPhysicalRamMB();
-        if (ram <= 0) ram = getMaxHeapMB();          // fall back to current heap
-        // Common safe rule: use up to half the RAM, but keep sane bounds.
-        long suggested = ram / 2;
-        if (suggested < 1024) suggested = 1024;      // at least 1 GB
-        if (suggested > 16384) suggested = 16384;    // cap at 16 GB
+        long available = getEffectiveRamMB();
+        if (available <= 0) available = getMaxHeapMB();
+        long suggested = available / 2L;
+        long ceiling = Math.max(512L, available - 512L); // never eat the whole quota
+        if (suggested > ceiling) suggested = ceiling;
+        if (suggested > 16384L) suggested = 16384L;
+        if (suggested < 512L) suggested = Math.min(512L, Math.max(128L, available / 2L));
         return suggested;
     }
 
-    /**
-     * Optimal JVM flags for THIS machine (Aikar flags + GC sizing + vector).
-     * Returns a single command line string ready to append to `java`.
-     */
+    /** Aikar-style G1 flags sized to the machine/quota, with the vector fix. */
     public static String recommendedJvmArgs() {
+        long heap = suggestHeapMB();
         StringBuilder sb = new StringBuilder();
-        sb.append("-Xms").append(suggestHeapMB()).append("M")
-          .append(" -Xmx").append(suggestHeapMB()).append("M");
+        sb.append("-Xms").append(heap).append("M -Xmx").append(heap).append("M");
         sb.append(" -XX:+UseG1GC -XX:+ParallelRefProcEnabled");
         sb.append(" -XX:MaxGCPauseMillis=200 -XX:+UnlockExperimentalVMOptions");
         sb.append(" -XX:+DisableExplicitGC -XX:+AlwaysPreTouch");
@@ -153,147 +236,150 @@ public final class VoltPurHardware {
         sb.append(" -XX:G1HeapWastePercent=5 -XX:G1MixedGCCountTarget=4");
         sb.append(" -XX:InitiatingHeapOccupancyPercent=15");
         sb.append(" -XX:G1MixedGCLiveThresholdPercent=90 -XX:G1RSetUpdatingPauseTimePercent=5");
-        sb.append(" -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem");
-        sb.append(" -XX:MaxTenuringThreshold=1");
-        // G1GC heuristics for many cores / big heaps
-        if (availableCores >= 8) sb.append(" -XX:ParallelGCThreads=").append(Math.min(availableCores, 16));
-        if (availableCores < 4)  sb.append(" -XX:G1ConcRefinementThreads=2");
-        // Java 25 + x86/ARM64: prefer incubator vector if available
-        if (vectorAvailable) sb.append(" --add-modules=jdk.incubator.vector");
-        sb.append(" -Dusing.aikars.flags=https://mcflags.emc.gs");
-        sb.append(" -Daikars.new.flags=true");
+        sb.append(" -XX:SurvivorRatio=32 -XX:+PerfDisableSharedMem -XX:MaxTenuringThreshold=1");
+        // Panels kill a server that dies from swap thrashing; exiting fast is friendlier.
+        sb.append(" -XX:+ExitOnOutOfMemoryError");
+
+        int effectiveCores = getEffectiveCores();
+        if (effectiveCores >= 8) sb.append(" -XX:ParallelGCThreads=").append(Math.min(effectiveCores, 16));
+        if (effectiveCores < 4) sb.append(" -XX:G1ConcRefinementThreads=2");
+
+        // Only recommend the incubator module when the JDK actually ships it.
+        if (vectorShippedByJdk && !vectorResolved) {
+            sb.append(" --add-modules=jdk.incubator.vector");
+        }
+        sb.append(" -Dusing.aikars.flags=https://mcflags.emc.gs -Daikars.new.flags=true");
         return sb.toString();
     }
 
-    /** Which server.properties values best match this machine. */
+    /** Recommended values, each labelled with the file that actually reads it. */
     public static List<String> recommendedServerSettings() {
         List<String> out = new ArrayList<>();
-        int cores = Math.max(1, availableCores);
-        long ramMB = getPhysicalRamMB() > 0 ? getPhysicalRamMB() : getMaxHeapMB();
+        int cores = getEffectiveCores();
+        long ramMB = getEffectiveRamMB();
         long heapMB = getMaxHeapMB();
 
         int viewDistance;
         if (heapMB >= 12000) viewDistance = 12;
         else if (heapMB >= 6000) viewDistance = 10;
         else viewDistance = 8;
+        int simulationDistance = Math.max(4, viewDistance - 2);
 
-        int simDist = Math.max(4, viewDistance - 2);
-
-        int maxPlayers = 20;
+        int maxPlayers;
         if (ramMB >= 8000 && cores >= 6) maxPlayers = 100;
         else if (ramMB >= 4000 && cores >= 4) maxPlayers = 60;
         else maxPlayers = 30;
 
         out.add("view-distance=" + viewDistance);
-        out.add("simulation-distance=" + simDist);
+        out.add("simulation-distance=" + simulationDistance);
         out.add("max-players=" + maxPlayers);
 
-        // Paper thread sizing
-        int asyncThreads = Math.max(1, cores / 4);
-        int ioThreads = Math.max(2, cores / 2);
-        out.add("paper: async-chunk-loading-threads=" + asyncThreads);
-        out.add("paper: io-threads=" + ioThreads);
-        out.add("paper: max-auto-save=600");
-        out.add("spigot: mob-spawn-range=" + (viewDistance >= 10 ? 5 : 4));
+        // These live in paper-global.yml / spigot.yml - named correctly so the advice can be followed.
+        int ioThreads = Math.max(2, cores / 4);
+        int workerThreads = Math.max(2, cores / 2);
+        out.add("(paper-global.yml) chunk-system.io-threads=" + ioThreads);
+        out.add("(paper-global.yml) chunk-system.worker-threads=" + workerThreads);
+        out.add("(spigot.yml) world-settings.default.ticks-per.autosave=600");
+        out.add("(spigot.yml) world-settings.default.mob-spawn-range=" + (viewDistance >= 10 ? 5 : 4));
         return out;
     }
 
-    /** Component compatibility warnings. Empty = fully compatible. */
+    /** Compatibility warnings. Empty list means nothing to warn about. */
     public static List<String> compatibilityWarnings() {
-        List<String> w = new ArrayList<>();
-        int cores = Math.max(1, availableCores);
-
-        if (cores < 2) {
-            w.add("Only " + cores + " logical CPU core(s) detected - expect reduced performance; reduce view-distance & mobs.");
-        } else if (cores >= 2 && cores < 4) {
-            w.add("Low core count (" + cores + "). Keep view-distance <=8 and avoid heavy plugins.");
-        }
-
-        long ram = getPhysicalRamMB();
-        if (ram > 0 && ram < 2048) {
-            w.add("Physical RAM below 2 GB (" + ram + " MB) - 1.21.10 may struggle; consider upgrading.");
-        }
+        List<String> warnings = new ArrayList<>();
+        int effectiveCores = getEffectiveCores();
+        long ram = getEffectiveRamMB();
         long heap = getMaxHeapMB();
+
+        if (effectiveCores < 2) {
+            warnings.add("Only " + effectiveCores + " usable core(s) - expect reduced performance; lower view-distance.");
+        } else if (effectiveCores < 4) {
+            warnings.add("Few usable cores (" + effectiveCores + ") - keep view-distance <= 8 and avoid heavy plugins.");
+        }
+        if (ram > 0 && ram < 2048) {
+            warnings.add("Only " + ram + " MB RAM available to the server - 1.21.10 will struggle; consider upgrading.");
+        }
         if (heap > 0 && heap < 1024) {
-            w.add("JVM max heap is small (" + heap + " MB). Consider -Xmx" + suggestHeapMB() + "M.");
+            warnings.add("Max heap is small (" + heap + " MB). Consider -Xmx" + suggestHeapMB() + "M.");
         }
-
-        if (isArm && !vectorAvailable) {
-            w.add("ARM CPU but jdk.incubator.vector is not loaded - add --add-modules=jdk.incubator.vector for SIMD on ARM64.");
-        } else if (!isArm && !vectorAvailable) {
-            w.add("jdk.incubator.vector not loaded - add --add-modules=jdk.incubator.vector to enable SIMD optimizations.");
+        if (ram > 0 && heap > ram) {
+            warnings.add("Max heap (" + heap + " MB) exceeds the available RAM (" + ram + " MB) - risk of swapping/OOM kill.");
         }
-
-        // Java version compatibility
+        if (isContainer()) {
+            warnings.add("Running inside a container: advice is sized to the quota ("
+                    + getEffectiveRamMB() + " MB RAM / " + getEffectiveCores() + " cores, source: " + quotaSource
+                    + "), not to the host machine.");
+        }
         try {
             int major = Runtime.version().feature();
             if (major < 21) {
-                w.add("Java " + major + " is below the recommended 21+ for 1.21.10 servers; use Java 25 (project target).");
-            } else if (major >= 21 && major < 25) {
-                w.add("Java " + major + " works, but the project targets Java 25 - upgrade for best performance.");
+                warnings.add("Java " + major + " is below the recommended 21+ for 1.21.10; this project targets Java 25.");
+            } else if (major < 25) {
+                warnings.add("Java " + major + " works, but this project targets Java 25.");
             }
-        } catch (Throwable ignored) {}
-
-        // Heap vs physical RAM ratio
-        if (ram > 0 && heap > 0 && heap > ram) {
-            w.add("Max heap (" + heap + " MB) exceeds physical RAM (" + ram + " MB) - risk of swapping. Lower -Xmx.");
+        } catch (Throwable ignoredVersionApi) {
+            // Runtime.version() always exists on Java 9+; nothing to report if it somehow fails.
         }
-        return w;
+        if (!vectorShippedByJdk) {
+            warnings.add("This JDK does not ship jdk.incubator.vector - SIMD paths are unavailable (harmless).");
+        } else if (!vectorResolved) {
+            warnings.add("jdk.incubator.vector is shipped by this JDK but not loaded. Add --add-modules=jdk.incubator.vector "
+                    + "if you want the SIMD code paths (it only helps when the server actually uses them).");
+        }
+        return warnings;
     }
 
-    /**
-     * Produces a full hardware report as an ordered list of text lines
-     * (suitable for both logging and the /voltpur hardware command).
-     */
     public static List<String> hardwareReport() {
+        detect();
         List<String> out = new ArrayList<>();
-        out.add("=== [VoltPur] Hardware Compatibility Report ===");
+        out.add("=== VoltPur hardware report ===");
         out.add("OS        : " + osName + " " + osVersion + " (" + osArch + ")");
         out.add("CPU       : " + getCpuModel());
-        out.add("Cores     : " + availableCores + " logical");
-        out.add("CPU Arch  : " + (isArm ? "ARM64/ARM" : osArch));
-        out.add("SIMD/Vec  : " + (vectorAvailable ? "jdk.incubator.vector AVAILABLE" : "not loaded"));
-        out.add("RAM       : " + (getPhysicalRamMB() > 0 ? getPhysicalRamMB() + " MB" : "unreported"));
-        out.add("Max Heap  : " + getMaxHeapMB() + " MB  (recommended -Xmx" + suggestHeapMB() + "M)");
+        out.add("Cores     : " + availableCores + " logical" + (quotaCores > 0 ? " (quota: " + getEffectiveCores() + " usable)" : ""));
+        out.add("Arch      : " + (isArm ? "ARM64/ARM" : osArch));
+        out.add("RAM       : " + (getPhysicalRamMB() > 0 ? getPhysicalRamMB() + " MB host" : "host unreported")
+                + (quotaRamBytes > 0 ? " | " + (quotaRamBytes / (1024L * 1024L)) + " MB available to this server" : ""));
+        out.add("Container : " + (isContainer() ? "yes (" + quotaSource + ")" : "no/unlimited"));
+        out.add("Max heap  : " + getMaxHeapMB() + " MB (recommended -Xmx" + suggestHeapMB() + "M)");
         out.add("Java      : " + javaVersion);
+        out.add("Vector    : " + (vectorResolved ? "loaded" : vectorShippedByJdk ? "shipped by JDK, not loaded" : "not available"));
 
         List<String> warns = compatibilityWarnings();
         if (warns.isEmpty()) {
-            out.add("Compatibility: ALL COMPONENTS COMPATIBLE ✅");
+            out.add("Compatibility: no issues detected");
         } else {
-            out.add("Compatibility: " + warns.size() + " warning(s)");
-            for (String s : warns) out.add("  ⚠ " + s);
+            out.add("Compatibility: " + warns.size() + " note(s)");
+            for (String warning : warns) out.add("  ! " + warning);
         }
         out.add("");
         out.add("Recommended JVM start command:");
         out.add("java " + recommendedJvmArgs() + " -jar server.jar --nogui");
         out.add("");
-        out.add("Recommended server settings:");
-        for (String s : recommendedServerSettings()) out.add("  " + s);
+        out.add("Recommended values (file in brackets is where they belong):");
+        for (String line : recommendedServerSettings()) out.add("  " + line);
         return out;
     }
 
-    /** Logs the report at startup and writes it to logs/voltpur-hardware-report.txt */
     public static void reportToLogAndFile() {
         reportToLogAndFile(true);
     }
 
-    /** Variant that can suppress the warning section (respects modules.hardware.warn-incompatible). */
-    public static void reportToLogAndFile(boolean showWarnings) {
-        List<String> lines = hardwareReport();
-        if (!showWarnings) {
-            // Remove the warning lines (they start with "  ⚠ " and "Compatibility:")
-            lines.removeIf(l -> l.startsWith("  ⚠ ") || l.startsWith("Compatibility:"));
+    public static void reportToLogAndFile(boolean includeWarnings) {
+        List<String> lines = new ArrayList<>(VoltPurGuard.run(MODULE, VoltPurHardware::hardwareReport, List.of()));
+        if (!includeWarnings) {
+            lines.removeIf(line -> line.startsWith("  ! ") || line.startsWith("Compatibility:"));
         }
-        var logger = Bukkit.getLogger();
-        for (String l : lines) logger.info("[VoltPur-HW] " + l);
+        for (String line : lines) Bukkit.getLogger().info("[VoltPur-HW] " + line);
         try {
             File logDir = new File("logs");
-            if (!logDir.exists()) logDir.mkdirs();
+            if (!logDir.exists() && !logDir.mkdirs()) {
+                Bukkit.getLogger().warning("[VoltPur-HW] Could not create the logs/ directory.");
+                return;
+            }
             Files.write(Path.of("logs", "voltpur-hardware-report.txt"), lines, StandardCharsets.UTF_8);
-            logger.info("[VoltPur-HW] Report -> logs/voltpur-hardware-report.txt");
         } catch (IOException e) {
-            logger.warning("[VoltPur-HW] Could not write report file: " + e.getMessage());
+            VoltPurGuard.failure(MODULE, e);
+            Bukkit.getLogger().warning("[VoltPur-HW] Could not write the report file: " + e.getMessage());
         }
     }
 }

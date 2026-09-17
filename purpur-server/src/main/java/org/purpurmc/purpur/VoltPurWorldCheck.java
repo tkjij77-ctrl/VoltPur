@@ -2,148 +2,136 @@ package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
 import org.bukkit.World;
-import org.bukkit.WorldCreator;
 import org.bukkit.World.Environment;
+
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.Date;
 import java.util.logging.Logger;
 
+/**
+ * VoltPur WorldCheck - read-only reporting of world/storage state.
+ *
+ * REMOVED IN THE HARDENING PASS: {@code ensureServerProperties()}.
+ * It rewrote server.properties at runtime and, when the file was missing, wrote a
+ * brand new one containing "online-mode=false" (an open cracked server) and
+ * "allow-flight=true", while also stripping every comment from an existing file
+ * (Properties.store rewrites the whole file) and forcing allow-nether=true over
+ * the operator's choice. Minecraft/Paper generate server.properties correctly on
+ * first start, so VoltPur has no business writing it at all.
+ *
+ * What remains is diagnostic only: it reports loaded worlds, real region-file
+ * counts on disk, and appends a stability line to logs/voltpur-stability.log.
+ */
 public class VoltPurWorldCheck {
-    private static boolean checked = false;
+
+    private static final String MODULE = "WorldStability";
+    private static boolean scheduled = false;
+
+    private VoltPurWorldCheck() {}
+
     public static void init() {
-        if (checked) return;
-        checked = true;
+        if (scheduled) return;
+        scheduled = true;
         Logger logger = Bukkit.getLogger();
-        logger.info("[VoltPur-World] Stability check scheduled");
+        logger.info("[VoltPur-World] Stability check scheduled (read-only).");
 
-        // VoltPur: run the world check on the Bukkit sync scheduler (main thread)
-        // with a real plugin owner. Paper requires a non-null plugin for scheduling.
-        VoltPurPlugin.whenAvailable(() -> {
-            org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
-            if (p == null) return;
+        // Runs on the main thread via the internal plugin owner (see VoltPurPlugin).
+        try {
+            Bukkit.getScheduler().runTaskLater(VoltPurPlugin.get(), () -> VoltPurGuard.run(MODULE, () -> {
+                reportWorlds();
+                reportWorldFolders();
+                writeStabilityReport();
+            }), 200L); // ~10s after startup, when worlds are loaded
+        } catch (Throwable t) {
+            VoltPurGuard.failure(MODULE, t);
+        }
+    }
+
+    private static void reportWorlds() {
+        Logger logger = Bukkit.getLogger();
+        boolean hasNether = false;
+        boolean hasEnd = false;
+        for (World world : Bukkit.getWorlds()) {
+            int entities = 0;
+            int chunks = 0;
             try {
-                Bukkit.getScheduler().runTaskLater(p, () -> {
-                    try {
-                        ensureServerProperties();
-                        checkWorldsSync();
-                        checkFiles();
-                        generateStabilityReportSync();
-                    } catch (Exception e) {
-                        logger.warning("[VoltPur-World] Check failed: " + e.getMessage());
-                    }
-                }, 200L); // ~10s after server start
-            } catch (Exception e) {
-                logger.warning("[VoltPur-World] Schedule failed: " + e.getMessage());
+                entities = world.getEntities().size();
+            } catch (Throwable t) {
+                logger.fine("[VoltPur-World] entity count unavailable for " + world.getName() + ": " + t.getMessage());
             }
-        });
-    }
-    public static void ensureServerProperties() {
-        try {
-            File file = new File("server.properties");
-            if (!file.exists()) {
-                Bukkit.getLogger().info("[VoltPur-World] server.properties not found, creating default...");
-                try (java.io.FileWriter fw = new java.io.FileWriter(file)) {
-                    fw.write("# VoltPur server.properties\n");
-                    fw.write("server-port=25565\n");
-                    fw.write("online-mode=false\n");
-                    fw.write("allow-nether=true\n");
-                    fw.write("allow-flight=true\n");
-                    fw.write("spawn-protection=0\n");
-                    fw.write("view-distance=10\n");
-                    fw.write("motd=VoltPur Full Software\n");
-                }
-            } else {
-                java.util.Properties props = new java.util.Properties();
-                try (java.io.FileInputStream fis = new java.io.FileInputStream(file)) { props.load(fis); }
-                boolean changed = false;
-                if (!props.containsKey("allow-nether")) { props.setProperty("allow-nether", "true"); changed = true; }
-                else if (!props.getProperty("allow-nether").equalsIgnoreCase("true")) {
-                    props.setProperty("allow-nether", "true"); changed = true;
-                }
-                if (!props.containsKey("allow-flight")) { props.setProperty("allow-flight", "true"); changed = true; }
-                if (changed) {
-                    try (java.io.FileOutputStream fos = new java.io.FileOutputStream(file)) { props.store(fos, "VoltPur"); }
-                }
+            try {
+                chunks = world.getLoadedChunks().length;
+            } catch (Throwable t) {
+                logger.fine("[VoltPur-World] chunk count unavailable for " + world.getName() + ": " + t.getMessage());
             }
-        } catch (Exception e) {}
-    }
-    private static void checkWorldsSync() {
-        Logger logger = Bukkit.getLogger();
-        try {
-            int count = Bukkit.getWorlds().size();
-            logger.info("[VoltPur-World] Currently loaded worlds: " + count);
-            for (World w : Bukkit.getWorlds()) {
-                int entities = 0; int chunks = 0;
-                try { entities = w.getEntities().size(); } catch (Exception ex) { }
-                try { chunks = w.getLoadedChunks().length; } catch (Exception ex) { }
-                logger.info("[VoltPur-World] - " + w.getName() + " (" + w.getEnvironment() + ") E:" + entities + " C:" + chunks);
-            }
-            boolean hasNether = false; boolean hasEnd = false;
-            for (World w : Bukkit.getWorlds()) {
-                if (w.getEnvironment() == Environment.NETHER) hasNether = true;
-                if (w.getEnvironment() == Environment.THE_END) hasEnd = true;
-            }
-            logger.info("[VoltPur-World] === Stability Report ===");
-            logger.info("[VoltPur-World] Overworld: " + (Bukkit.getWorld("world") != null ? "OK" : "MISSING"));
-            logger.info("[VoltPur-World] Nether: " + (hasNether ? "OK" : "MISSING/DISABLED"));
-            logger.info("[VoltPur-World] End: " + (hasEnd ? "OK" : "MISSING/DISABLED"));
-            logger.info("[VoltPur-World] Total: " + Bukkit.getWorlds().size() + " worlds");
-            logger.info("[VoltPur-World] All expected worlds loaded - STABLE");
-        } catch (Exception e) {}
-    }
-    private static void checkFiles() {
-        Logger logger = Bukkit.getLogger();
-        // NOTE: We do NOT create world folders ourselves. Minecraft/Paper creates and
-        // manages world storage (incl. the WorldFolderMigration you may see at startup -
-        // that is normal Paper behaviour, not an error). Creating empty stub folders here
-        // was misleading ("Created world folder") and could interfere with that migration,
-        // so it was removed. We only ensure plugin-pro/ exists.
-        File pluginPro = new File("plugin-pro");
-        if (!pluginPro.exists()) pluginPro.mkdirs();
-        // Report the world folders that ACTUALLY exist on disk (with saved region data).
-        String[] worlds = {"world", "world_nether", "world_the_end"};
-        for (String w : worlds) {
-            File dir = new File(w);
-            if (dir.isDirectory()) {
-                int regions = countRegionFiles(dir);
-                logger.info("[VoltPur-World] On disk: " + w + "/ (" + regions + " region file(s) saved)");
-            } else {
-                logger.info("[VoltPur-World] On disk: " + w + "/ not present yet (generated on first visit).");
-            }
+            if (world.getEnvironment() == Environment.NETHER) hasNether = true;
+            if (world.getEnvironment() == Environment.THE_END) hasEnd = true;
+            logger.info("[VoltPur-World] - " + world.getName() + " (" + world.getEnvironment()
+                    + ") E:" + entities + " C:" + chunks);
         }
-        logger.info("[VoltPur-World] File check complete.");
+        int count = Bukkit.getWorlds().size();
+        logger.info("[VoltPur-World] Loaded worlds: " + count
+                + " (overworld=" + (Bukkit.getWorld("world") != null ? "OK" : "not named 'world'")
+                + ", nether=" + (hasNether ? "OK" : "not loaded")
+                + ", end=" + (hasEnd ? "OK" : "not loaded") + ")");
+        logger.info("[VoltPur-World] Note: Paper's WorldFolderMigration messages at startup are normal, not errors.");
     }
 
-    /** Counts *.mca region files anywhere under a world folder (proof of saved chunks). */
-    private static int countRegionFiles(File worldDir) {
-        int[] count = {0};
-        countRegionFilesRec(worldDir, count, 0);
-        return count[0];
-    }
-    private static void countRegionFilesRec(File dir, int[] count, int depth) {
-        if (dir == null || depth > 4) return;
-        File[] kids = dir.listFiles();
-        if (kids == null) return;
-        for (File k : kids) {
-            if (k.isDirectory()) countRegionFilesRec(k, count, depth + 1);
-            else if (k.getName().endsWith(".mca")) count[0]++;
+    /** Reports the folders that exist on disk, with real saved region counts (proof, not claims). */
+    private static void reportWorldFolders() {
+        Logger logger = Bukkit.getLogger();
+        File pluginPro = new File("plugin-pro");
+        if (!pluginPro.isDirectory() && pluginPro.mkdirs()) {
+            logger.info("[VoltPur-World] Created plugin-pro/ (priority plugin folder).");
+        }
+        for (World world : Bukkit.getWorlds()) {
+            File folder = world.getWorldFolder();
+            if (folder == null || !folder.isDirectory()) continue;
+            logger.info("[VoltPur-World] On disk: " + folder.getName() + "/ - " + countRegionFiles(folder) + " region file(s)");
         }
     }
-    private static void generateStabilityReportSync() {
-        Logger logger = Bukkit.getLogger();
+
+    private static int countRegionFiles(File worldDir) {
+        int[] counter = {0};
+        countRecursive(worldDir, counter, 0);
+        return counter[0];
+    }
+
+    private static void countRecursive(File dir, int[] counter, int depth) {
+        if (dir == null || depth > 4) return;
+        File[] children = dir.listFiles();
+        if (children == null) return;
+        for (File child : children) {
+            if (child.isDirectory()) countRecursive(child, counter, depth + 1);
+            else if (child.getName().endsWith(".mca")) counter[0]++;
+        }
+    }
+
+    private static void writeStabilityReport() {
         try {
-            File logDir = new File("logs");
-            if (!logDir.exists()) logDir.mkdirs();
-            File report = new File(logDir, "voltpur-stability.log");
-            try (java.io.FileWriter fw = new java.io.FileWriter(report, true)) {
-                fw.write("=== VoltPur Stability Report - " + new java.util.Date() + " ===\n");
-                fw.write("Version: " + VoltPur.VERSION + "\n");
-                fw.write("Worlds: " + Bukkit.getWorlds().size() + "\n");
-                for (World w : Bukkit.getWorlds()) {
-                    fw.write("  - " + w.getName() + " (" + w.getEnvironment() + ")\n");
-                }
-                fw.write("Status: STABLE\n");
+            Path logDir = Path.of("logs");
+            Files.createDirectories(logDir);
+            Path report = logDir.resolve("voltpur-stability.log");
+            StringBuilder sb = new StringBuilder();
+            sb.append("=== VoltPur stability report - ").append(new Date()).append(" ===\n");
+            sb.append("version: ").append(VoltPur.VERSION).append('\n');
+            sb.append("worlds: ").append(Bukkit.getWorlds().size()).append('\n');
+            for (World world : Bukkit.getWorlds()) {
+                File folder = world.getWorldFolder();
+                int regions = (folder != null && folder.isDirectory()) ? countRegionFiles(folder) : 0;
+                sb.append("  - ").append(world.getName()).append(" (").append(world.getEnvironment())
+                        .append(") region files: ").append(regions).append('\n');
             }
-            logger.info("[VoltPur-World] Stability report -> logs/voltpur-stability.log");
-        } catch (Exception e) {}
+            sb.append("modules: ").append(VoltPurModules.activeCount()).append(" active / ")
+                    .append(VoltPurModules.totalCount()).append(" tracked\n");
+            sb.append('\n');
+            Files.writeString(report, sb.toString(), StandardCharsets.UTF_8,
+                    java.nio.file.StandardOpenOption.CREATE, java.nio.file.StandardOpenOption.APPEND);
+        } catch (Exception e) {
+            VoltPurGuard.failure(MODULE, e);
+        }
     }
 }

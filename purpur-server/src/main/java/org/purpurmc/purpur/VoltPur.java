@@ -1,145 +1,193 @@
 package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
+
+import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
 import java.util.logging.Logger;
 
+/**
+ * VoltPur entry point - branding, honest startup banner and module wiring.
+ *
+ * Hardening changes:
+ *  - The banner reports implementation counts AND the current safety posture, so an
+ *    operator can see at a glance whether risky behaviour is enabled.
+ *  - Module startup is deferred to the first server tick (when the scheduler is
+ *    guaranteed to exist) with a bounded retry, instead of racing the scheduler.
+ *  - The "plugin-pro/" text no longer claims a load-order guarantee that Paper does
+ *    not provide; it is described as what it is (a priority plugin folder whose
+ *    JARs are still ordered by plugin dependencies).
+ */
 public class VoltPur {
-    public static final String VERSION = "26.2.0-RC1";
+
+    /** Single source of truth for the version string (docs must match this). */
+    public static final String VERSION = "26.2.0-rc2";
     public static final String BRAND = "VoltPur";
     public static final String MC_VERSION = "1.21.10";
+
     private static boolean initialized = false;
+
+    private VoltPur() {}
 
     public static void init() {
         if (initialized) return;
         initialized = true;
+
         Logger logger = Bukkit.getLogger();
+        try {
+            VoltPurConfig.init(); // load config first so the banner reports the real posture, not defaults
+        } catch (Throwable t) {
+            logger.warning("[VoltPur] Config load failed: " + t.getMessage());
+        }
         logger.info("━━━━━━━━━━━━━━━━ VoltPur ⚡ " + VERSION + " ━━━━━━━━━━━━━━━━");
-        logger.info("[VoltPur] Modules: " + VoltPurModules.activeCount() + " active | "
-            + VoltPurModules.partialCount() + " partial | " + VoltPurModules.plannedCount() + " planned");
-        logger.info("[VoltPur] Commands: /voltpur help | plugin install: /vo in <url> <plugins|plugin-pro>");
+        logger.info("[VoltPur] Modules: " + VoltPurModules.activeCount() + " implemented, "
+                + VoltPurModules.partialCount() + " partial, " + VoltPurModules.plannedCount()
+                + " planned - run /voltpur modules for live health");
+        logger.info("[VoltPur] Safety: item-limiter=" + state(VoltPurConfig.itemLimiterEnabled)
+                + " optimizer=" + state(VoltPurConfig.optimizerEnabled)
+                + " padmin=" + state(VoltPurConfig.padminEnabled)
+                + " destructive-reinstall=" + state(VoltPurConfig.updateCleanReinstall)
+                + " update-checksum=" + (VoltPurConfig.updateRequireChecksum ? "required" : "optional"));
+        logger.info("[VoltPur] Commands: /voltpur help | /vo up list (verified, reversible updates)");
         printInstalledStamp(logger);
 
-        try { VoltPurConfig.init(); } catch (Exception e) { logger.warning("Config failed: " + e.getMessage()); }
-        try { VoltPurPerformance.init(); } catch (Exception e) { logger.warning("Perf init failed: " + e.getMessage()); }
-        try { VoltPurWorldCheck.init(); } catch (Exception e) { logger.warning("WorldCheck init failed: " + e.getMessage()); }
+        scheduleOnFirstTick(() -> {
+            VoltPurPerformance.init();
+            VoltPurWorldCheck.init();
+            VoltPurOptimizer.init();
+            VoltPurDiscord.init();
+            VoltPurBackup.init();
+            VoltPurResourcePack.init();
 
-        // Opt-in real modules (safe, pure server-side; no-op unless enabled in voltpur.yml).
-        try { VoltPurDiscord.init(); } catch (Exception e) { logger.warning("[VoltPur] Discord init failed: " + e.getMessage()); }
-        try { VoltPurBackup.init(); } catch (Exception e) { logger.warning("[VoltPur] Backup init failed: " + e.getMessage()); }
-        try { VoltPurResourcePack.init(); } catch (Exception e) { logger.warning("[VoltPur] ResourcePack init failed: " + e.getMessage()); }
-
-        // Hardware detection + optional report (safe, read-only).
-        try {
-            VoltPurHardware.detect();
-            if (VoltPurConfig.hardwareReport) VoltPurHardware.reportToLogAndFile(VoltPurConfig.hardwareWarn);
-        } catch (Exception e) {
-            logger.warning("[VoltPur] Hardware detection failed: " + e.getMessage());
-        }
-
-        // Dynamic Optimizer - VoltCore signature feature. Runs after a plugin is
-        // enabled and worlds are loaded, then applies adaptive spigot.yml tuning.
-        try {
-            VoltPurPlugin.whenAvailable(() -> {
-                org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
-                if (p == null) return;
-                Bukkit.getScheduler().runTaskLater(p, VoltPurOptimizer::apply, 400L);
-            });
-        } catch (Exception e) {
-            logger.warning("[VoltPur] Optimizer schedule failed: " + e.getMessage());
-        }
-
-        // Auto-tune applied after startup (opt-in). Use the SAME safe pattern as
-        // the other modules: wait until a plugin is ENABLED, then schedule on it.
-        // Never pass a null (or a not-yet-enabled) plugin to the scheduler, as that
-        // throws "Plugin may not be null" / "attempted to register task while disabled".
-        if (VoltPurConfig.hardwareAutoTune) {
             try {
-                VoltPurPlugin.whenAvailable(() -> {
-                    org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
-                    if (p == null) {
-                        logger.info("[VoltPur] Auto-tune skipped - no enabled plugin to own the task.");
-                        return;
-                    }
-                    Bukkit.getScheduler().runTaskLater(p, VoltPurTuning::onServerStart, 800L);
-                });
-            } catch (Exception e) {
-                logger.warning("[VoltPur] Auto-tune scheduling failed: " + e.getMessage());
+                VoltPurHardware.detect();
+                if (VoltPurConfig.hardwareReport) {
+                    VoltPurHardware.reportToLogAndFile(VoltPurConfig.hardwareWarn);
+                }
+            } catch (Throwable t) {
+                VoltPurGuard.failure("HardwareDetection", t);
             }
-        }
+            if (VoltPurConfig.hardwareAutoTune) {
+                try {
+                    VoltPurTuning.onServerStart();
+                } catch (Throwable t) {
+                    VoltPurGuard.failure("HardwareAutoTune", t);
+                }
+            } else {
+                VoltPurModules.setRuntime("HardwareAutoTune", false);
+            }
+            VoltPurModules.setRuntime("PAdminWebUI", false); // starts only on /padmin
+        });
     }
-    public static String getVersion() { return VERSION; }
+
+    private static String state(boolean enabled) {
+        return enabled ? "ON" : "off";
+    }
 
     /**
-     * plugin-pro/ is registered as a real plugin source by the paperweight patch
-     * (paper-patches/files/.../PluginInitializerManager.java.patch), which loads it
-     * BEFORE plugins/. Here we only ensure the folder exists so it is ready.
+     * Runs module wiring once the server tick loop exists. Bukkit's scheduler is not
+     * guaranteed to be available while the server is still constructing itself, so
+     * we defer to the first tick and retry briefly if needed.
+     */
+    private static void scheduleOnFirstTick(Runnable work) {
+        Runnable guarded = () -> VoltPurGuard.run("Startup", work);
+        try {
+            Bukkit.getScheduler().runTask(VoltPurPlugin.get(), guarded);
+            return;
+        } catch (Throwable notReadyYet) {
+            Bukkit.getLogger().info("[VoltPur] Scheduler not ready during config init - deferring module startup.");
+        }
+        Thread retry = new Thread(() -> {
+            for (int attempt = 0; attempt < 60; attempt++) {
+                try {
+                    Thread.sleep(500L);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    return;
+                }
+                try {
+                    Bukkit.getScheduler().runTask(VoltPurPlugin.get(), guarded);
+                    return;
+                } catch (Throwable stillNotReady) {
+                    // keep retrying until the server tick loop is up (max ~30s)
+                }
+            }
+            Bukkit.getLogger().warning("[VoltPur] Module startup could not be scheduled after 30s.");
+        }, "VoltPur-Startup");
+        retry.setDaemon(true);
+        retry.start();
+    }
+
+    public static String getVersion() {
+        return VERSION;
+    }
+
+    /**
+     * plugin-pro/ - a priority plugin folder, nothing more.
+     *
+     * The folder is registered as an extra provider source ahead of plugins/ by
+     * VoltPur's paperweight patch, which makes its JARs *discovered* first. It does
+     * NOT override Paper's load-order rules: the real order is decided by
+     * depend/softdepend/loadbefore (Bukkit plugins) or load: BEFORE|AFTER
+     * (paper-plugin.yml). VoltPur states this plainly instead of claiming a
+     * guaranteed "loads before everything" behaviour.
      */
     public static void ensurePluginProFolder() {
         try {
-            java.io.File folder = new java.io.File("plugin-pro");
-            if (!folder.exists()) {
-                folder.mkdirs();
-                java.io.File readme = new java.io.File(folder, "README.txt");
-                if (!readme.exists()) {
-                    try (java.io.FileWriter fw = new java.io.FileWriter(readme)) {
-                        fw.write("VoltPur plugin-pro/ - loads BEFORE plugins/ (via paperweight patch).\n");
-                        fw.write("Put performance plugins (Spark, ClearLag) here to load first.\n");
-                        fw.write("Regular gameplay plugins still go in plugins/.\n");
-                    }
-                }
+            File folder = new File("plugin-pro");
+            if (folder.exists()) return;
+            if (!folder.mkdirs()) {
+                Bukkit.getLogger().warning("[VoltPur] Could not create plugin-pro/ - check folder permissions.");
+                return;
+            }
+            File readme = new File(folder, "README.txt");
+            try (java.io.FileWriter writer = new java.io.FileWriter(readme)) {
+                writer.write("VoltPur plugin-pro/ - priority plugin folder.\n");
+                writer.write("JARs here are discovered before plugins/, but the final load order still\n");
+                writer.write("follows plugin dependencies (depend/softdepend, or load: BEFORE|AFTER).\n");
+                writer.write("Use it to keep infrastructure plugins (spark, Chunky, log filters) separate.\n");
             }
         } catch (Exception e) {
-            Bukkit.getLogger().warning("[VoltPur] Could not create plugin-pro folder: " + e.getMessage());
+            Bukkit.getLogger().warning("[VoltPur] Could not prepare plugin-pro/: " + e.getMessage());
         }
     }
 
-    /**
-     * Backwards-compatible wrapper (called by PurpurConfig.init()).
-     * plugin-pro/ is loaded by the paperweight patch during PluginInitializerManager.load(),
-     * before plugins/. This method only ensures the folder exists (no duplicate loading).
-     */
+    /** Backwards-compatible wrapper kept for PurpurConfig.init(). */
     public static void loadPluginPro() {
         ensurePluginProFolder();
-        Logger logger = Bukkit.getLogger();
-        // Honest description: plugin-pro/ is a PRIORITY plugin folder. The paperweight
-        // patch registers it as a plugin source that is scanned BEFORE plugins/. Jars here
-        // are standard Paper/Bukkit plugins (NOT Fabric-style pre-game mods). A verifiable
-        // load log is printed so the operator can confirm what was picked up.
-        logger.info("[VoltPur] plugin-pro/ active - priority plugin folder (scanned before plugins/ via paperweight patch).");
-        try {
-            java.io.File folder = new java.io.File("plugin-pro");
-            java.io.File[] jars = folder.listFiles((d, n) -> n.toLowerCase().endsWith(".jar"));
-            int count = jars == null ? 0 : jars.length;
-            if (count == 0) {
-                logger.info("[VoltPur] plugin-pro/: no .jar plugins present (drop performance plugins here to load them first).");
-            } else {
-                logger.info("[VoltPur] plugin-pro/: found " + count + " plugin jar(s) to load first:");
-                for (java.io.File j : jars) logger.info("[VoltPur]   - " + j.getName());
-            }
-        } catch (Exception e) {
-            logger.warning("[VoltPur] plugin-pro/ scan failed: " + e.getMessage());
-        }
+        File folder = new File("plugin-pro");
+        File[] jars = folder.listFiles((dir, name) -> name.toLowerCase().endsWith(".jar"));
+        int count = jars == null ? 0 : jars.length;
+        Bukkit.getLogger().info("[VoltPur] plugin-pro/: " + count + " plugin jar(s) present "
+                + "(discovered before plugins/; load order still follows each plugin's dependencies).");
     }
 
     /**
-     * After a /vo up update, the updater writes voltpur-installed.txt with the build
-     * identity. On the next boot we print it so the operator can CONFIRM the exact build
-     * that is now running (answers "which version did I actually move to?").
+     * After a verified update, the updater writes voltpur-installed.txt. We print it
+     * at boot so the operator can confirm exactly which build is running.
      */
     private static void printInstalledStamp(Logger logger) {
         try {
-            java.io.File f = new java.io.File("voltpur-installed.txt");
-            if (!f.exists()) return;
-            java.util.Properties p = new java.util.Properties();
-            try (java.io.FileInputStream in = new java.io.FileInputStream(f)) { p.load(in); }
-            String commit = p.getProperty("commit", "");
-            String shortSha = commit.length() >= 7 ? commit.substring(0, 7) : commit;
-            logger.info("  [VoltPur] 📌 Installed via /vo up -> build #" + p.getProperty("build", "?")
-                + " | run " + p.getProperty("run", "?")
-                + " | commit " + (shortSha.isEmpty() ? "?" : shortSha)
-                + (p.getProperty("exact", "true").equals("false") ? " (latest fallback)" : "")
-                + " | at " + p.getProperty("installed-at", "?"));
-            logger.info("  [VoltPur] ✅ Cross-check: the 'This server is running Purpur ...@<commit>' line above should show " + (shortSha.isEmpty() ? "the same commit" : shortSha) + ".");
-        } catch (Exception ignored) {}
+            Path stamp = Path.of("voltpur-installed.txt");
+            if (!Files.isRegularFile(stamp)) return;
+            List<String> lines = Files.readAllLines(stamp, StandardCharsets.UTF_8);
+            String build = "?", sha = "?", verified = "?", installedAt = "?";
+            for (String line : lines) {
+                if (line.startsWith("build=")) build = line.substring(6).trim();
+                else if (line.startsWith("commit=")) sha = line.substring(7).trim();
+                else if (line.startsWith("checksum-verified=")) verified = line.substring(18).trim();
+                else if (line.startsWith("installed-at=")) installedAt = line.substring(13).trim();
+            }
+            String shortSha = sha.length() >= 7 ? sha.substring(0, 7) : sha;
+            logger.info("[VoltPur] Installed via /vo up -> build #" + build + " | commit " + shortSha
+                    + " | checksum verified: " + verified + " | at " + installedAt);
+            logger.info("[VoltPur] Cross-check: the 'This server is running Purpur ...@<commit>' line should match "
+                    + (shortSha.isEmpty() ? "the stamp" : shortSha) + ".");
+        } catch (Exception e) {
+            logger.fine("[VoltPur] Could not read voltpur-installed.txt: " + e.getMessage());
+        }
     }
 }

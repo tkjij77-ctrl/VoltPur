@@ -1,0 +1,31 @@
+# 🔬 دليل التحقق (VoltPur Verify Harness)
+
+هدف هذا المجلد: **إثبات قابل للتكرار** أن كود VoltPur متماسك، بدل ادعاءات في الوثائق.
+
+```
+tools/verify/run-verify.sh          # تشغيل كامل (ترجمة + 63 فحصًا سلوكيًا)
+VP_JAVAC=/path/to/jdk-21/bin/javac tools/verify/run-verify.sh   # تحديد JDK يدويًا
+```
+
+## ماذا يُثبت بالضبط
+1. **الترجمة**: كل ملفات VoltPur الجديدة تُترجم فعليًا (وليس فحصًا نحويًا فقط) — أي خطأ مثل `PluginJarInstaller.install` الذي يرمي `Exception` مفحوصة لم يكن ليصل للـ CI صامتًا.
+2. **التماسك بين الملفات**: النداءات بين الفئات موجودة بأسمائها وتوقيعاتها الفعلية (`VoltPurGuard.Stat.runs()`، `VoltPurModules.setRuntime()`، `VoltPurConfig.*`...).
+3. **السلوك** (63 تأكيدًا):
+   - الإعدادات الافتراضية آمنة (الموديولات المدمِّرة = off، الـ checksum إجباري، لا مفاتيح ميتة مثل `hopper-sleep` تُكتب).
+   - التوليد العشوائي لتوكن الـ resource pack.
+   - `VoltPurTuning` لا يكتب شيئًا بلا opt-in، ويحفظ الكومنتات والمفاتيح غير المعروفة.
+   - قائمة discord المسموح بها (رفض `http`، رفض المضيف المشابه `discord.com.evil.example`).
+   - `VoltPurGuard`: عدّاد الفشل، `FAILING` عند الفشل، **والشفاء بعد نجاح لاحق** دون محو التاريخ.
+   - كشف الحاوية: `-Xmx` المقترح لا يتجاوز الحصة الفعلية، ومفاتيح `paper-global.yml` بأسمائها الحقيقية.
+   - فحص روابط التحميل (SSRF): رفض `file://`, `ftp://`, loopback, `192.168`, `169.254`, `fc00::/7` (ULA), `100.64/10` (CGNAT), `user:pass@`, `#fragment`.
+   - تحقّق الأرشيف المُنزَّل: يقبل جار Paperclip، ويرفض zip غير ذي صلة وصفحة HTML سُمّيت `.jar`.
+   - قيمة `sha256` المعروفة (`abc`) مطابقة.
+
+## ماذا لا يُثبت (بصدق)
+- ❌ **لا** يشغّل سيرفر Minecraft حقيقيًا: السلوك داخل Paper (المهام، الحوادث، NMS) غير مُختبَر.
+- ❌ **لا** يقيس أداءً. أي رقم أداء يجب أن يأتي من `logs/voltpur-benchmark.txt` فقط (انظر `docs/BENCHMARKS.md`).
+- ❌ الـ stubs تحت `stubs/` **ليست Paper API الحقيقي**: هي واجهة مكتوبة يدويًا للأصناف المستخدمة فقط. قيم أعضائها قُوبلت مع Paper `ver/1.21.10` يدويًا (مثل `getAverageTickTime()`، `setSimulationDistance()`، `YamlConfiguration.loadConfiguration()`).
+- ⚠️ الترجمة هنا بـ **JDK 21**، بينما CI يبني بـ **Java 25**. الكود لا يستخدم صيغة خاصة بـ 25، لكن المصدر الوحيد للبناء النهائي هو CI أو `build-fork.sh`.
+
+## القاعدة
+أي PR يعدّل كود VoltPur **يجب** أن يمرّ `tools/verify/run-verify.sh`، وأي إصلاح دون اختبار مقابل = مسح للمشكلة لا حلّ لها (POLICY §1).

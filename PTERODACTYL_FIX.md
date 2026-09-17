@@ -25,7 +25,7 @@ unzip VoltPur-26.2-Paperclip.zip
 ```
 
 ### 2. الرفع عبر متصفح Pterodactyl بيقطع الملف
-لو حجم الـ JAR ~80MB، الرفع من المتصفح ممكن يفشل.
+جار Paperclip بحجم عشرات الميجابايت، والرفع من المتصفح ممكن يفشل أو ينتج ملفًا ناقصًا.
 
 **الحل:** استخدم SFTP:
 - Host: IP السيرفر
@@ -39,7 +39,8 @@ unzip VoltPur-26.2-Paperclip.zip
 **الحل:**
 - روح Actions -> آخر run ناجح (أخضر ✅) بتاريخ اليوم
 - حمل الـ Artifact الجديد فقط
-- تأكد أن Run ID هو `30522860445` أو أحدث
+- افتح صفحة **Releases** وحمّل من آخر إصدار (لا يحتاج توكن، وهو نفس ما يستخدمه `/vo up`)
+- أو من Actions: أي run **أخضر ✅** حديث — لا تعتمد على رقم Run محدد مكتوب في أي دليل
 
 ### 4. تأكد الملف JAR فعلا
 على السيرفر، شغل:
@@ -56,7 +57,8 @@ java -jar server.jar --help
 ```bash
 chmod +x server.jar
 ls -lh server.jar
-# المفروض يكون ~80-100MB مش 0 bytes ولا بضع KB
+# المفروض عشرات الميجابايت. لو 0 bytes أو بضع KB => الملف/الرفع ناقص
+sha256sum server.jar   # وقارنها مع VoltPur-26.2.jar.sha256
 ```
 
 ## الطريقة الصح لـ Pterodactyl
@@ -68,21 +70,38 @@ java -Xms128M -Xmx{{SERVER_MEMORY}}M --add-modules=jdk.incubator.vector -Dtermin
 ```
 (حط `server.jar` مش ` {{SERVER_JARFILE}}` variable لو عندك مشكلة)
 
+> لو ظهر خطأ أن `jdk.incubator.vector` غير موجود، احذف `--add-modules=jdk.incubator.vector` من الأمر.
+> هذا العلم يُضاف تلقائيًا في التوصية داخل `/voltpur flags` **فقط** لو الـ JDK يحتويه فعلًا.
+
 **Docker Image:** `ghcr.io/pterodactyl/yolks:java_25`
 
 **تأكد:**
 - `server.jar` = الـ VoltPur JAR الجديد (فك الضغط الأول!)
 - Java 25
-- حجم الملف 70MB+
+- الحجم عشرات الميجابايت (وليس KB) — القيمة الدقيقة ظاهرة في صفحة الإصدار
 
-## اختبار
-بعد ما ترفع الصح:
+## اختبار حقيقي (بدون مخرجات مُختلقة)
+
+شغّل السيرفر وابحث في اللوج عن السطور الفعلية التالية:
+
 ```
-[VoltPur]  V O L T P U R - 26.2-VoltPur
-[VoltPur]  Loading 21 modules...
-[VoltPur]  [1/21] EntityActivation - OK
-...
+━━━━━━━━━━━━━━━━ VoltPur ⚡ 26.2.0-rc2 ━━━━━━━━━━━━━━━━
+[VoltPur] Modules: N implemented, N partial, N planned - run /voltpur modules for live health
+[VoltPur] Safety: item-limiter=off optimizer=off padmin=off destructive-reinstall=off update-checksum=required
+[VoltPur-World] Loaded worlds: N (overworld=OK, nether=..., end=...)
+[VoltPur] Installed build: build <n> | checksum verified: yes | at <timestamp>   <- يظهر فقط بعد تحديث عبر /vo up
 ```
+(الأرقام `N` تُطبع فعليًا من السجل — لا يوجد عدد ثابت مكتوب في الكود.)
+ثم في اللعبة (OP):
+```
+/voltpur modules     -> لكل موديول: حالته + runs/fails الحقيقية
+/voltpur status      -> TPS + MSPT + العوالم + بصمة البناء المثبَّت
+```
+
+> **ملاحظة صدق:** كانت النسخة السابقة من هذا الملف تعرض مخرجات مثل
+> `[VoltPur] Loading 21 modules... [1/21] EntityActivation - OK` — وهذا **مخرج غير موجود**
+> في أي إصدار من الكود (قائمة الـ 21 موديول الوهمية أُزيلت منذ `VoltPurModules`).
+> لا تعتمد على أي لوج مكتوب يدويًا في التوثيق؛ استخدم اللوج الفعلي لسيرفرك.
 
 ## لو لسه المشكلة موجودة
 ابعت:

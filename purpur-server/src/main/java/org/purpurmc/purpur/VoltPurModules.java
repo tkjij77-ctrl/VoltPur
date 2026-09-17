@@ -2,85 +2,129 @@ package org.purpurmc.purpur;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * VoltPur Modules - an HONEST module registry.
+ * VoltPur module registry - implementation status AND live runtime state.
  *
- * The old system reported 21 modules as "ENABLED" even though most had no
- * implementation. Here every module carries a real status:
- *   ACTIVE  - implemented and wired to run in this build.
- *   PARTIAL - partial/limited implementation (safe, but not full).
- *   PLANNED - claimed name only; NOT implemented yet. Reported honestly.
+ * Three honest states:
+ *   ACTIVE  - implemented in this build (opt-in modules say so explicitly).
+ *   PARTIAL - implemented with limits, or provided by upstream Paper/Purpur.
+ *   PLANNED - name reserved, NOT implemented. Reported as such, never as working.
  *
- * Definition of done: a module may only be set ACTIVE when it runs and has a
- * measurable line in /voltpur benchmark (or an equivalent verifiable effect).
+ * The registry deliberately does NOT print "enabled" for something that is merely
+ * implemented: enabled state is a runtime fact, set by the module itself through
+ * {@link #setRuntime(String, boolean)} at init time. Health (runs/fails) comes
+ * from {@link VoltPurGuard}.
+ *
+ * Definition of done for moving a module to ACTIVE:
+ *   1. it runs,
+ *   2. it is visible in /voltpur modules with non-zero runs,
+ *   3. it has a measurable line in /voltpur benchmark OR a verifiable side effect.
  */
 public final class VoltPurModules {
 
     public enum Status { ACTIVE, PARTIAL, PLANNED }
 
-    private static final Map<String, Status> MODULES = new LinkedHashMap<>();
+    private record Entry(Status status, boolean optIn, String note) {}
+
+    private static final Map<String, Entry> MODULES = new LinkedHashMap<>();
+    private static final Map<String, Boolean> RUNTIME = new ConcurrentHashMap<>();
 
     private VoltPurModules() {}
 
     static {
-        // ---- Truly active in this build (verifiable) ----
-        register("HardwareDetection",   Status.ACTIVE);   // /voltpur hardware
-        register("HardwareAutoTune",    Status.ACTIVE);   // opt-in tuning
-        register("ItemLimiter",         Status.ACTIVE);   // dropped-item cleanup
-        register("TPSMonitor",          Status.ACTIVE);   // low-TPS logging
-        register("WorldStability",      Status.ACTIVE);   // VoltPurWorldCheck
-        register("PterodactylFix",      Status.ACTIVE);   // stability on panels
-        register("Updater",             Status.ACTIVE);   // /vo up + /vo up list
-        register("PAdminWebUI",         Status.ACTIVE);   // /padmin
-        register("DynamicOptimizer",    Status.ACTIVE);   // adaptive spigot.yml tuning
-        register("DiscordWebhook",      Status.ACTIVE);   // VoltPurDiscord (opt-in webhook notifications)
-        register("WorldBackup",         Status.ACTIVE);   // VoltPurBackup (opt-in scheduled world zips)
-        register("ResourcePackHTTP",    Status.ACTIVE);   // VoltPurResourcePack (opt-in HTTP pack server)
+        // ---- Implemented, always-on ----
+        register("HardwareDetection", Status.ACTIVE, false, "/voltpur hardware + cgroup-aware recommendations");
+        register("ModuleGuard", Status.ACTIVE, false, "counts runs/failures so a dead module cannot look healthy");
+        register("TPSMonitor", Status.ACTIVE, false, "logs when TPS drops below 18");
+        register("ChunkWarning", Status.ACTIVE, false, "warns on excessive loaded chunks");
+        register("WorldStability", Status.ACTIVE, false, "read-only world/storage report (never writes server.properties)");
+        register("Updater", Status.ACTIVE, false, "stage -> verify (SHA-256) -> confirm, with rollback");
+
+        // ---- Implemented, opt-in (default OFF; they change files, gameplay or network) ----
+        register("ItemLimiter", Status.ACTIVE, true, "removes only old/unnamed dropped items; OFF by default");
+        register("DynamicOptimizer", Status.ACTIVE, true, "adapts spawn limit/simulation distance and auto-reverts");
+        register("HardwareAutoTune", Status.ACTIVE, true, "writes server.properties/spigot.yml (needs restart)");
+        register("PAdminWebUI", Status.ACTIVE, true, "loopback + Basic Auth + read-only");
+        register("DiscordWebhook", Status.ACTIVE, true, "server/player notifications over HTTPS webhook");
+        register("WorldBackup", Status.ACTIVE, true, "consistent world zips (save-off/flush/save-on)");
+        register("ResourcePackHTTP", Status.ACTIVE, true, "local pack server with an unguessable path");
 
         // ---- Partial ----
-        register("AikarFlagsAuto",      Status.PARTIAL);  // recommends flags; not applied automatically
-        register("BedrockBridge",       Status.PARTIAL);  // detection only (no QoS patch applied)
-        register("AntiExploit",         Status.PARTIAL);  // minimal
-        // Entity Activation is ACTIVE via Paper's built-in ActivationRange (EAR);
-        // VoltPur adds no duplicate patch. Reported PARTIAL until a VoltPur-specific
-        // tuning/measurement is wired to it.
-        register("EntityActivation",    Status.PARTIAL);  // via Paper EAR (already on)
+        register("AikarFlagsAuto", Status.PARTIAL, true, "recommends flags; never edits the panel start command");
+        register("AntiExploit", Status.PARTIAL, true, "basic item-age guard only; no movement/packet heuristics");
+        register("BedrockBridge", Status.PARTIAL, false, "detection/report only - Geyser still required");
+        register("EntityActivation", Status.PARTIAL, false, "comes from Paper's built-in activation range");
 
-        // ---- Honest PLANNED (NOT implemented yet) ----
-        // Hopper sleep: Java-layer config is ready (opt-in) but the NMS patch
-        // (empty-hopper rest in HopperBlockEntity.pushItemsTick) must be applied
-        // via applyAllPatches+rebuildPatches on the build machine. See docs/HOPPER_SNIPPET.md.
-        register("HopperOptimization",  Status.PLANNED);  // NMS patch pending applyPatches
-        register("CollisionOptimization", Status.PLANNED);
-        register("MemoryOptimization",  Status.PLANNED);  // FerriteCore not applied
-        register("NetworkOptimization", Status.PLANNED);
-        register("RedstoneOptimization", Status.PLANNED);
-        register("ChunkLoading",        Status.PLANNED);  // C2ME not applied
-        register("LightEngine",         Status.PLANNED);
-        register("ConnectionStability", Status.PLANNED);
-        register("PerWorldPlugin",      Status.PLANNED);
+        // ---- Honest PLANNED (not implemented - no code path exists) ----
+        register("HopperOptimization", Status.PLANNED, false, "no NMS patch; only spigot.yml hopper-check via HardwareAutoTune");
+        register("CollisionOptimization", Status.PLANNED, false, "not implemented");
+        register("MemoryOptimization", Status.PLANNED, false, "not implemented");
+        register("NetworkOptimization", Status.PLANNED, false, "not implemented");
+        register("RedstoneOptimization", Status.PLANNED, false, "not implemented");
+        register("ChunkLoading", Status.PLANNED, false, "not implemented (Paper's own chunk system is used)");
+        register("LightEngine", Status.PLANNED, false, "not implemented");
+        register("ConnectionStability", Status.PLANNED, false, "not implemented");
+        register("PerWorldPlugin", Status.PLANNED, false, "not implemented (plugin-pro/ is only a folder)");
     }
 
-    private static void register(String name, Status s) {
-        MODULES.put(name, s);
+    private static void register(String name, Status status, boolean optIn, String note) {
+        MODULES.put(name, new Entry(status, optIn, note));
     }
 
-    public static Map<String, Status> all() { return MODULES; }
+    /** Module name -> implementation status (used by PAdmin's JSON API too). */
+    public static Map<String, Status> all() {
+        Map<String, Status> out = new LinkedHashMap<>();
+        MODULES.forEach((name, entry) -> out.put(name, entry.status()));
+        return out;
+    }
+
+    public static boolean isOptIn(String name) {
+        Entry entry = MODULES.get(name);
+        return entry != null && entry.optIn();
+    }
+
+    /** Called by each module at init so the registry reflects reality, not intent. */
+    public static void setRuntime(String name, boolean running) {
+        RUNTIME.put(name, running);
+    }
+
+    public static boolean isRunning(String name) {
+        return Boolean.TRUE.equals(RUNTIME.get(name));
+    }
+
     public static int activeCount() {
-        return (int) MODULES.values().stream().filter(s -> s == Status.ACTIVE).count();
+        return (int) MODULES.values().stream().filter(entry -> entry.status() == Status.ACTIVE).count();
     }
+
     public static int partialCount() {
-        return (int) MODULES.values().stream().filter(s -> s == Status.PARTIAL).count();
+        return (int) MODULES.values().stream().filter(entry -> entry.status() == Status.PARTIAL).count();
     }
+
     public static int plannedCount() {
-        return (int) MODULES.values().stream().filter(s -> s == Status.PLANNED).count();
+        return (int) MODULES.values().stream().filter(entry -> entry.status() == Status.PLANNED).count();
     }
-    public static int totalCount() { return MODULES.size(); }
+
+    public static int totalCount() {
+        return MODULES.size();
+    }
 
     public static String line(String name) {
-        Status s = MODULES.get(name);
-        String icon = s == Status.ACTIVE ? "🟢" : s == Status.PARTIAL ? "🟠" : "🟡";
-        return icon + " " + name + " - " + s;
+        Entry entry = MODULES.get(name);
+        if (entry == null) return "❔ " + name + " - untracked";
+        String icon = switch (entry.status()) {
+            case ACTIVE -> "🟢";
+            case PARTIAL -> "🟠";
+            case PLANNED -> "🟡";
+        };
+        StringBuilder sb = new StringBuilder();
+        sb.append(icon).append(' ').append(name).append(" - ").append(entry.status());
+        if (entry.optIn()) {
+            Boolean running = RUNTIME.get(name);
+            sb.append(running == null ? " [opt-in]" : running ? " [enabled]" : " [disabled]");
+        }
+        if (!entry.note().isEmpty()) sb.append(" · ").append(entry.note());
+        return sb.toString();
     }
 }

@@ -1,4 +1,5 @@
 # JVM crash related
+tools/verify/out/
 core.*
 hs_err_pid*
 
@@ -60,3 +61,17 @@ manifest.mf
 /paper-api
 *.jar
 test-plugin.settings.gradle.kts
+
+# VoltPur runtime secrets & writable state (never commit tokens/passwords)
+voltpur.yml
+*.backup
+*.backup.*
+server.jar
+server.jar.old
+server.jar.bak-*
+server.jar.before-rollback-*
+voltpur-installed.txt
+voltpur-builds.txt
+.voltpur-tmp/
+*.bak-20*
+logs/voltpur-*.txt

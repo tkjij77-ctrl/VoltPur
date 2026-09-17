@@ -76,21 +76,22 @@ jobs:
             Commit: ${{ github.sha }}
 
             ### Download (no token needed):
-            - VoltPur-26.2.jar
-            - VoltPur.jar
-            - server.jar (for Pterodactyl)
+            - VoltPur-26.2.jar  (+ .sha256 checksum - the in-game updater verifies it)
+            - server.jar (for Pterodactyl panels)
 
-            ### Install:
-            Use /vo up <build_number> in-game to update via hosting internet
-            Or download server.jar manually
+            ### Install (verified + reversible):
+            /vo up list            -> recent builds (cached on disk)
+            /vo up <number>        -> download + SHA-256 verification + shows the plan
+            /vo up confirm         -> applies it (keeps plugins, configs, worlds, backups)
+            /vo rollback           -> restores the previous server jar if needed
 
-            ### What's real (VoltCore, honest):
-            - /voltpur modules : honest status (8/24 ACTIVE, rest PARTIAL/PLANNED)
-            - /voltpur benchmark: live measured TPS/MSPT/entities/chunks/heap/hoppers
-            - /voltpur hardware : device compatibility + recommended JVM flags
-            - ItemLimiter / TPSMonitor / ChunkCheck : wired and running
-            - plugin-pro/ loader patch (loads perf plugins first)
-            - Hopper sleep : opt-in config + NMS snippet (docs/HOPPER_SNIPPET.md)
+            ### What this build actually does (no performance claims):
+            - /voltpur modules   -> implementation status + LIVE health per module (runs/fails)
+            - /voltpur benchmark -> measured TPS / MSPT / entities / chunks / heap / hoppers
+            - /voltpur hardware  -> real CPU/RAM (container-quota aware) + JVM flags for THIS machine
+            - Updater            -> checksum-verified, non-destructive, two-phase, rollback support
+            - Safety defaults    -> item limiter OFF, dynamic optimizer OFF, PAdmin OFF, clean reinstall OFF
+            - No NMS performance patches are included. See POLICY.md and docs/BENCHMARKS.md.
           files: |
             purpur-server/build/libs/VoltPur-26.2.jar
             purpur-server/build/libs/VoltPur.jar

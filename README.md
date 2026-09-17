@@ -3,118 +3,126 @@
 [![Build](https://github.com/tkjij77-ctrl/VoltPur/actions/workflows/build.yml/badge.svg?branch=ver/26.2)](https://github.com/tkjij77-ctrl/VoltPur/actions)
 ![MC](https://img.shields.io/badge/Minecraft-1.21.10-brightgreen?style=for-the-badge)
 ![Java](https://img.shields.io/badge/Java-25-orange?style=for-the-badge)
-![Version](https://img.shields.io/badge/VoltPur-26.2.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
 ---
 
-## 📖 ما هو VoltPur؟ (الفكرة الأساسية)
+## 📖 ما هو VoltPur؟
 
-**VoltPur هو برنامج خادم ماينكرافت** (server software) مبني على **Purpur 26.2** — الذي هو بدوره فورك من **Paper**، أشهر برامج الخوادم أداءً.
+**خادم ماينكرافت** مبني على **Purpur 26.2** (وهو فورك من **Paper**)، يضيف فوقه **طبقة تشغيل وتحقق**: أوامر تشخيص، كشف عتاد حقيقي، قياس أداء، تحديثات ذاتية **متحقَّق منها ومُرجَعة (rollback)**، وحماية من الأخطاء التشغيلية على لوحات الاستضافة.
 
-**القيمة التي يضيفها VoltPur فوق Purpur:**
-
-| المجال | ماذا يفعل VoltPur |
-|--------|-------------------|
-| **قياس وتشخيص** | أوامر مدمجة تقيس أداء الخادم حيًّا (TPS/الذواكر/العوالم) |
-| **كشف العتاد** | يكتشف CPU/RAM/العمارة ويقترح أعلام JVM المثلى لجهازك |
-| **استقرار** | يصلح مشاكل تشغيلية على لوحات الاستضافة (مثل أخطاء threads) |
-| **شفافية** | يعرض حالة كل ميزة بصدق (يعمل / جزئي / مخطط له) |
-| **تحسين آمن** | يطبّق إعدادات أداء مثبتة (مثل تحسين الهوبر) قابلة للتفعيل |
-
-> **بصراحة:** VoltPur **ليس** إعادة اختراع. هو يعتمد على أداء Paper/Purpur المدمج (وهو ممتاز أصلًا)، ويضيف فوقه **أدوات تحكم وقياس وتشخيص + تحسينات آمنة قابلة للتفعيل**. هذه هي قيمته الحقيقية.
+> **بصراحة كاملة:** الأداء الذي تحصل عليه هو أداء **Paper + Purpur** المدمج. VoltPur **لا يضيف أي patch على محرك اللعبة** للأداء (كل تحسينات الهوبر/التصادم/الذاكرة/الشبكة مسجّلة `PLANNED` وليست منفَّذة). قيمتنا الحقيقية هي: **القياس الصادق + العمليات الآمنة**، وهذه هي أول نسخة تفعل ذلك فعليًا.
 
 ---
 
-## ✅ حالة الميزات (صادقة)
+## 🛡️ السلوك الافتراضي: آمن بالتصميم (v26.2.0-rc2)
 
-### 🟢 نشطة ومُثبتة (تعمل وتُقاس)
-| الميزة | ماذا تفعل | تحقق منها |
-|--------|-----------|-----------|
-| **HardwareDetection** | يكتشف العتاد + أعلام JVM الموصى بها | `/voltpur hardware` |
-| **Benchmark** | يقيس TPS/MSPT/الكيانات/الكانكس/الذاكرة | `/voltpur benchmark` |
-| **ItemLimiter** | يحدّ العناصر المرمية الزائدة | `/voltpur benchmark` |
-| **TPSMonitor** | يحذّر عند انخفاض TPS | اللوج |
-| **WorldStability** | يفحص/يجهّز مجلدات العوالم الثلاثة | `/voltpur status` |
-| **Updater** | تحديث ذاتي `server.jar` | `/vo up` |
-| **PAdminWebUI** | واجهة تحكم ويب | `/padmin` |
-| **HopperOpt** | (opt-in) يطبق `hopper-check=8` في spigot.yml | `/voltpur optimize` |
+| الميزة | الافتراضي | لماذا |
+|---|---|---|
+| `ItemLimiter` (حذف العناصر الزائدة) | **مطفأ** | كان يحذف غرض اللاعبين افتراضيًا وبلا تحذير |
+| `DynamicOptimizer` (تعديل السبون/المحاكاة) | **مطفأ** | كان يغيّر قواعد اللعب دائمًا لحد الريستارت |
+| `PAdmin` WebUI | **مطفأ** + loopback + Basic Auth | كان يستمع على `0.0.0.0` بلا مصادقة |
+| «إعادة تثبيت نظيفة» عند التحديث | **مطفأة** | كان يمسح `plugins/`, `server.properties`, `ops.json`, `whitelist.json`, `backups/` |
+| التحقق من SHA-256 للتحديث | **إجباري** | كان الفحص الوحيد «حجم > 1MB» |
+| نسخة الجار السابق + `/vo rollback` | **مفعّلة** | مفيش طريقة رجوع كانت موجودة |
 
-### 🟠 جزئية / 🟡 مخطط لها (لا ندّعي غير الحقيقة)
-- **EntityActivation** → 🟠 نشطة عبر Paper EAR المدمج (لا patch مكرر).
-- **HopperOptimization** → 🟡 تحسين NMS أعمق مخطط له (المقتطف في `docs/HOPPER_SNIPPET.md`).
-- Collision / Memory / Network / Redstone / Chunk / Light → 🟡 مخطط لها، لم تُطبَّق بعد.
-
----
-
-## 🚀 التشغيل السريع
-
-### 1) التحميل
-حمّل `server.jar` من [Releases](https://github.com/tkjij77-ctrl/VoltPur/releases/latest) وضعه في مجلد الخادم.
-
-### 2) الموافقة على EULA
-افتح `eula.txt` واجعل `eula=true`.
-
-### 3) التشغيل
-```bash
-java -Xms128M -Xmx{{RAM}}M --add-modules=jdk.incubator.vector \
-  -Dterminal.jline=false -Dterminal.ansi=true -jar server.jar --nogui
-```
-> أضف `--add-modules=jdk.incubator.vector` لتفعيل SIMD على المعالجات الداعمة (يزيل تحذير الكنسول).
+القاعدة الكاملة في **[POLICY.md](POLICY.md)** — أي ميزة تُعدّل ملفًا أو تحذف بيانات أو تفتح منفذًا: **مطفأة افتراضيًا + قابلة للرجوع + مقيسة**.
 
 ---
 
 ## ⌨️ الأوامر
 
 ```
-/voltpur help         مرجع كامل لكل الأوامر
-/voltpur version      معلومات الإصدار
-/voltpur modules      حالة الميزات الصادقة
-/voltpur status       فحص شامل (عوالم/ملفات/TPS)
-/voltpur worlds       قائمة العوالم
-/voltpur hardware     توافق العتاد + أعلام JVM
-/voltpur flags        أمر بدء JVM الموصى به
-/voltpur benchmark    قياس حي للأداء
-/voltpur optimize     تطبيق التحسينات (OP)
-/voltpur reload       إعادة تحميل الإعدادات (OP)
-/vo in <plugin-url> <plugins|plugin-pro>  تنزيل plugin JAR آمن (OP)
-/vo up [buildId]      تحديث server.jar
-/padmin               واجهة ويب
+/voltpur help         مرجع كل الأوامر + الوضع الأمني الحالي
+/voltpur version      الإصدار + بصمة البناء المثبَّت
+/voltpur modules      حالة كل موديول + صحته الحقيقية (runs / fails)
+/voltpur status       TPS + MSPT + العوالم + الملفات + بصمة البناء
+/voltpur worlds       العوالم المحمّلة (كيانات/chunks)
+/voltpur hardware     CPU/RAM الفعلي + حصة الحاوية + أعلام JVM
+/voltpur flags        أمر البدء الجاهز للنسخ
+/voltpur benchmark    قياس حي (OP، كولداون 30 ثانية)
+/voltpur optimize     كتابة الإعدادات المحسّنة (OP، يشترط auto-tune=true)
+/voltpur reload       إعادة تحميل voltpur.yml (OP)
+
+/vo up list           قائمة البناءات (مخزّنة على القرص)
+/vo up <n>            تحميل + تحقّق SHA-256 + عرض الخطة (لا تنفيذ)
+/vo up confirm        تنفيذ التحديث   |   /vo up cancel  إلغاء
+/vo rollback          الرجوع للجار السابق
+/vo in <url> <plugins|plugin-pro>   تنزيل بلجن (يتحقق من الشكل، لا من الثقة)
+
+/padmin start|stop|status            واجهة ويب محلية (read-only)
 ```
 
-أمر `in` يقبل روابط HTTP/HTTPS العامة فقط، ويتحقق من أن الملف JAR لبلجن صالح بحد أقصى 100 MiB. لا يشغّل البلجن تلقائياً؛ يلزم إعادة تشغيل الخادم بعد نجاح التنزيل.
+---
+
+## 🚀 التشغيل السريع
+
+```bash
+java -Xms2G -Xmx2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled \
+  -XX:MaxGCPauseMillis=200 -XX:+AlwaysPreTouch -XX:+ExitOnOutOfMemoryError \
+  -jar server.jar --nogui
+```
+> **لا تنسخ أعلامًا جاهزة من الإنترنت.** شغّل `/voltpur flags` — الأمر يحسب `-Xmx` من **حصة حاويتك الفعلية** (cgroup) لا من ذاكرة المضيف، وهي مشكلة كانت توصي بـ 32GB داخل حاوية 2GB.
 
 ---
 
-## 📦 مخرجات البناء (Actions)
-- يبني **Paperclip JAR** وينشئ **Release عام** تلقائيًا عند كل push إلى `ver/26.2`.
-- المخرجات: `server.jar`، `VoltPur.jar`، `VoltPur-26.2.jar`، `.sha256`.
-- `server.jar` جاهز للرفع على Pterodactyl/أي استضافة (ليس ZIP).
+## 🔬 التحقق قبل أي دمج
+```bash
+tools/verify/run-verify.sh     # ترجمة فعلية + 63 فحصًا سلوكيًا (JDK 21+)
+```
+يفشل السكربت إذا كسرت أي تغيير الافتراضات الآمنة أو فحص الروابط أو تحقق الأرشيف. تفاصيل ما يُثبته وما لا يُثبته: `tools/verify/README.md`.
 
 ---
 
-## 📁 مجلدات العوالم
-VoltPur لا ينشئ مجلدات عوالم وهمية؛ Minecraft/Paper ينشئ `world/`, `world_nether/`, `world_the_end/` وبياناتها عند تحميل العوالم فعلياً. يحافظ المحدّث النظيف على مجلدات العوالم الموجودة وعلى `eula.txt`.
+## 📦 حالة الموديولات (صادقة)
+
+- **مُنفَّذة (13)** — منها **7 اختيارية مطفأة افتراضيًا**.
+- **جزئية (4)** — مثل `AikarFlagsAuto` (توصية فقط)، `EntityActivation` (من Paper أصلًا).
+- **مخططة (9)** — `HopperOptimization`, `CollisionOptimization`, `MemoryOptimization`, `NetworkOptimization`, `RedstoneOptimization`, `ChunkLoading`, `LightEngine`, `ConnectionStability`, `PerWorldPlugin` — **لا كود لها**.
+
+> العدد يتغيّر مع كل إصدار، لذلك المصدر الموثوق هو `/voltpur modules` (يعرض الحالة + الصحة اللحظية). وأي رقم مكتوب في التوثيق يجب أن يطابقه.
+
+---
+
+## 🔧 تعديلات VoltPur على المحرك (كلها)
+
+| الملف | الحجم | الوظيفة |
+|---|---|---|
+| `purpur-server/paper-patches/files/.../PluginInitializerManager.java.patch` | 9 أسطر | تسجيل `plugin-pro/` كمصدر بلجنات إضافي |
+| `purpur-server/minecraft-patches/sources/net/minecraft/commands/Commands.java.patch` | سطر واحد | حماية `NPE` عند تنفيذ أمر قبل تحميل العالم |
+
+هذا كل شيء. باقي المشروع (حوالي 2,900 سطر Java) طبقة أدوات داخل السيرفر.
+
+**ملاحظة عن `plugin-pro/`:** الـ JARs بداخله تُكتشف **قبل** `plugins/`، لكن **ترتيب التحميل النهائي تحدده اعتماديات البلجن** (`depend`/`loadbefore`، أو `load: BEFORE|AFTER` في `plugin.yml`/`paper-plugin.yml`) — لا ندّعي غير ذلك.
 
 ---
 
 ## 📊 القياس
-**لا ننشر أرقامًا بلا قياس.** لقياس أداء الخادم:
+
+**لا ننشر أرقامًا بلا ملف قياس في المستودع.** للتشغيل:
 ```
-/voltpur benchmark
+/voltpur benchmark      → يكتب logs/voltpur-benchmark.txt (مع تدوير تلقائي)
 ```
-يكتب النتيجة في `logs/voltpur-benchmark.txt`. قارن قبل/بعد أي تحسين.
+المنهجية الكاملة + قائمة «الأرقام المسحوبة» القديمة في **[docs/BENCHMARKS.md](docs/BENCHMARKS.md)**.
+
+---
+
+## 📁 العوالم والتحديثات
+
+- VoltPur **لا ينشئ** مجلدات عوالم وهمية، ولا يكتب `server.properties` (Minecraft/Paper يفعلان ذلك بشكل صحيح).
+- التحديث الافتراضي **لا يحذف شيئًا**: يتحقق من الجار الجديد ثم يستبدل الجار المُشغَّل، ويحفظ نسخة `.bak-<timestamp>`، ويحفظ العوالم/configs/plugins كما هي.
+- الخيار المدمِّر (`update.clean-reinstall`) موجود لمن يريده، ومطفأ افتراضيًا، **ويطبع أسماء ما سيُحذف أولًا**.
 
 ---
 
 ## 🔗 روابط
+
 - **Releases:** https://github.com/tkjij77-ctrl/VoltPur/releases
 - **Actions:** https://github.com/tkjij77-ctrl/VoltPur/actions
-- **Changelog:** [docs/CHANGELOG.md](docs/CHANGELOG.md)
-- **المنهجية:** [docs/التفكر الصحيح.md](docs/التفكر الصحيح.md)
+- **سياسة المشروع (إلزامية):** [POLICY.md](POLICY.md)
+- **الأمان والمخاطر المتبقية:** [SECURITY.md](SECURITY.md)
+- **آخر تعديلات التصليب:** [docs/HARDENING-2026-09.md](docs/HARDENING-2026-09.md)
 - **المصدر الأصلي:** [Purpur](https://github.com/PurpurMC/Purpur) · [Paper](https://github.com/PaperMC/Paper)
-
----
 
 ## 📜 الترخيص
 MIT License (نفس Purpur/Paper).

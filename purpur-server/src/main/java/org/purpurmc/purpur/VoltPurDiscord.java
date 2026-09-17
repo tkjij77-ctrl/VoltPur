@@ -7,105 +7,155 @@ import java.net.HttpURLConnection;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
+import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * VoltPur Discord Webhook - opt-in (default OFF).
+ * VoltPur Discord Webhook - opt-in (default OFF) notifications.
  *
- * Sends server start/stop and player join/leave notifications to a Discord
- * webhook URL. Implemented with pure HTTP + a light sync poll (no Bukkit event
- * API needed), so it runs even on a server with 0 plugins - using the shared
- * scheduling owner from {@link VoltPurPlugin}. Configure in voltpur.yml under
- * modules.discord.*.
+ * HARDENING CHANGES:
+ *  - The webhook URL must be HTTPS and must point at Discord (discord.com or
+ *    discordapp.com). Previously any URL was accepted and POSTed to, which turned
+ *    a config key into an arbitrary outbound request primitive.
+ *  - No empty catch blocks: failures go to VoltPurGuard, so a broken webhook is
+ *    visible in /voltpur modules instead of disappearing silently.
+ *  - Join/leave detection uses a light 2s main-thread poll (no plugin events
+ *    needed) and is rate-limited so a webhook outage cannot spam the console.
  */
 public final class VoltPurDiscord {
+
+    private static final String MODULE = "DiscordWebhook";
+    private static final Set<String> KNOWN_PLAYERS = new HashSet<>();
+    private static final AtomicLong LAST_ERROR_LOG = new AtomicLong(0L);
     private static boolean initialized = false;
-    private static final Set<String> known = new HashSet<>();
 
     private VoltPurDiscord() {}
 
     public static void init() {
         if (initialized) return;
-        if (!VoltPurConfig.discordEnabled) return;
-        if (VoltPurConfig.discordWebhookUrl == null || VoltPurConfig.discordWebhookUrl.trim().isEmpty()) {
-            Bukkit.getLogger().info("[VoltPur-Discord] Enabled but webhook-url is empty - set modules.discord.webhook-url in voltpur.yml.");
+        if (!VoltPurConfig.discordEnabled) {
+            Bukkit.getLogger().info("[VoltPur-Discord] Disabled (opt-in). Enable modules.discord.enabled to use it.");
+            return;
+        }
+        String url = VoltPurConfig.discordWebhookUrl;
+        if (url == null || url.isBlank()) {
+            Bukkit.getLogger().info("[VoltPur-Discord] Enabled but modules.discord.webhook-url is empty.");
+            return;
+        }
+        if (!isAllowedWebhook(url)) {
+            Bukkit.getLogger().warning("[VoltPur-Discord] Refusing to start: the webhook URL must be HTTPS on "
+                    + "discord.com or discordapp.com.");
             return;
         }
         initialized = true;
-        Bukkit.getLogger().info("[VoltPur-Discord] Active - notifications will be sent to the configured webhook.");
+        VoltPurModules.setRuntime(MODULE, true);
+        Bukkit.getLogger().info("[VoltPur-Discord] Active - notifications go to the configured Discord webhook.");
 
         if (VoltPurConfig.discordAnnounceServer) {
-            send("\u2705 **VoltPur** server started (" + VoltPur.VERSION + ", MC " + VoltPur.MC_VERSION + ").");
+            send("**VoltPur** server started (" + VoltPur.VERSION + ", MC " + VoltPur.MC_VERSION + ").");
             try {
-                Runtime.getRuntime().addShutdownHook(new Thread(
-                        () -> send("\u26D4 **VoltPur** server stopping."), "VoltPur-Discord-Shutdown"));
-            } catch (Throwable ignored) {}
+                Runtime.getRuntime().addShutdownHook(
+                        new Thread(() -> send("**VoltPur** server stopping."), "VoltPur-Discord-Shutdown"));
+            } catch (Throwable t) {
+                VoltPurGuard.failure(MODULE, t);
+            }
         }
 
         if (VoltPurConfig.discordAnnouncePlayers) {
-            // Poll the online-player set on the main thread (join/leave detection),
-            // owned by the shared internal plugin so it runs without any plugin.
             try {
-                org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
-                if (p != null) {
-                    Bukkit.getScheduler().scheduleSyncRepeatingTask(p, VoltPurDiscord::pollPlayers, 100L, 40L); // ~every 2s
-                }
+                Bukkit.getScheduler().scheduleSyncRepeatingTask(VoltPurPlugin.get(),
+                        () -> VoltPurGuard.run(MODULE, VoltPurDiscord::pollPlayers), 100L, 40L);
             } catch (Throwable t) {
-                Bukkit.getLogger().warning("[VoltPur-Discord] Could not schedule player poll: " + t.getMessage());
+                VoltPurGuard.failure(MODULE, t);
             }
         }
     }
 
     private static void pollPlayers() {
-        try {
-            Set<String> current = new HashSet<>();
-            for (org.bukkit.entity.Player pl : Bukkit.getOnlinePlayers()) current.add(pl.getName());
-            for (String name : current) {
-                if (!known.contains(name)) send("\u2795 **" + name + "** joined the server. (" + current.size() + " online)");
+        Set<String> current = new HashSet<>();
+        for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) current.add(player.getName());
+        for (String name : current) {
+            if (!KNOWN_PLAYERS.contains(name)) {
+                send("**" + name + "** joined the server. (" + current.size() + " online)");
             }
-            for (String name : known) {
-                if (!current.contains(name)) send("\u2796 **" + name + "** left the server. (" + current.size() + " online)");
+        }
+        for (String name : KNOWN_PLAYERS) {
+            if (!current.contains(name)) {
+                send("**" + name + "** left the server. (" + current.size() + " online)");
             }
-            known.clear();
-            known.addAll(current);
-        } catch (Throwable ignored) {}
+        }
+        KNOWN_PLAYERS.clear();
+        KNOWN_PLAYERS.addAll(current);
     }
 
-    /** Fire-and-forget webhook POST on a worker thread. */
+    static boolean isAllowedWebhook(String url) {
+        try {
+            URI uri = URI.create(url.trim());
+            if (!"https".equalsIgnoreCase(uri.getScheme())) return false;
+            String host = uri.getHost();
+            if (host == null) return false;
+            String lower = host.toLowerCase(Locale.ROOT);
+            return lower.equals("discord.com") || lower.endsWith(".discord.com")
+                    || lower.equals("discordapp.com") || lower.endsWith(".discordapp.com");
+        } catch (IllegalArgumentException malformed) {
+            return false;
+        }
+    }
+
+    /** Fire-and-forget POST on a daemon worker thread. */
     public static void send(String message) {
         final String url = VoltPurConfig.discordWebhookUrl;
-        if (url == null || url.trim().isEmpty()) return;
-        new Thread(() -> {
-            try {
-                byte[] body = ("{\"content\":\"" + escape(message) + "\"}").getBytes(StandardCharsets.UTF_8);
-                HttpURLConnection conn = (HttpURLConnection) URI.create(url.trim()).toURL().openConnection();
-                conn.setRequestMethod("POST");
-                conn.setRequestProperty("Content-Type", "application/json");
-                conn.setRequestProperty("User-Agent", "VoltPur/1.0");
-                conn.setConnectTimeout(10000);
-                conn.setReadTimeout(10000);
-                conn.setDoOutput(true);
-                try (OutputStream os = conn.getOutputStream()) { os.write(body); }
-                int code = conn.getResponseCode(); // Discord returns 204 on success
-                if (code >= 400) Bukkit.getLogger().warning("[VoltPur-Discord] Webhook returned HTTP " + code);
-                conn.disconnect();
-            } catch (Exception e) {
-                Bukkit.getLogger().warning("[VoltPur-Discord] Webhook failed: " + e.getMessage());
-            }
-        }, "VoltPur-Discord").start();
+        if (url == null || url.isBlank() || !isAllowedWebhook(url)) return;
+        Thread worker = new Thread(() -> VoltPurGuard.run(MODULE, () -> post(url, message)), "VoltPur-Discord");
+        worker.setDaemon(true);
+        worker.start();
     }
 
-    private static String escape(String s) {
-        StringBuilder sb = new StringBuilder(s.length() + 16);
-        for (int i = 0; i < s.length(); i++) {
-            char c = s.charAt(i);
+    private static void post(String url, String message) {
+        HttpURLConnection connection = null;
+        try {
+            connection = (HttpURLConnection) URI.create(url.trim()).toURL().openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setRequestProperty("User-Agent", "VoltPur/2.0");
+            connection.setConnectTimeout(10_000);
+            connection.setReadTimeout(10_000);
+            connection.setDoOutput(true);
+            byte[] body = ("{\"content\":\"" + escapeJson(message) + "\"}").getBytes(StandardCharsets.UTF_8);
+            try (OutputStream out = connection.getOutputStream()) {
+                out.write(body);
+            }
+            int status = connection.getResponseCode();
+            if (status >= 400) {
+                throw new RuntimeException("webhook returned HTTP " + status);
+            }
+        } catch (Exception e) {
+            long now = System.currentTimeMillis();
+            long last = LAST_ERROR_LOG.get();
+            if (now - last > 60_000L && LAST_ERROR_LOG.compareAndSet(last, now)) {
+                Bukkit.getLogger().warning("[VoltPur-Discord] " + e.getMessage());
+            }
+            throw new RuntimeException(e);
+        } finally {
+            if (connection != null) connection.disconnect();
+        }
+    }
+
+    private static String escapeJson(String raw) {
+        StringBuilder sb = new StringBuilder(raw.length() + 16);
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
             switch (c) {
-                case '"': sb.append("\\\""); break;
-                case '\\': sb.append("\\\\"); break;
-                case '\n': sb.append("\\n"); break;
-                case '\r': break;
-                case '\t': sb.append("\\t"); break;
-                default: sb.append(c);
+                case '"' -> sb.append("\\\"");
+                case '\\' -> sb.append("\\\\");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) sb.append(String.format("\\u%04x", (int) c));
+                    else sb.append(c);
+                }
             }
         }
         return sb.toString();

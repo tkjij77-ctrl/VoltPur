@@ -20,7 +20,18 @@ import java.util.Set;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
-/** Secure, bounded downloader used by {@code /vo in}. It only writes plugin JARs. */
+/**
+ * Validated downloader used by {@code /vo in}.
+ *
+ * Honest scope: this validates the *shape* of the download (scheme, host range,
+ * size, redirects, real JAR with plugin metadata, safe file name) and writes it
+ * atomically. It is NOT a trust boundary: a plugin JAR runs with full server
+ * privileges, and no signature/checksum is available for arbitrary third-party
+ * URLs. Residual risk that is documented rather than hidden: the address check
+ * happens by DNS name before the connection is opened (a deliberately hostile DNS
+ * server could answer differently on the second lookup - classic TOCTOU), so the
+ * check is re-run for every redirect hop to keep the window as small as possible.
+ */
 final class PluginJarInstaller {
     static final long MAX_BYTES = 100L * 1024L * 1024L;
     private static final int CONNECT_TIMEOUT_MS = 10_000;
@@ -99,8 +110,30 @@ final class PluginJarInstaller {
                     || address.isSiteLocalAddress() || address.isMulticastAddress()) {
                 throw new IllegalArgumentException("Local or private network URLs are not allowed");
             }
+            if (isIpv6UniqueLocal(address) || isIpv4Cgnat(address)) {
+                // Both ranges are "private" in practice but are not flagged by InetAddress:
+                //  - fc00::/7  IPv6 unique local addresses
+                //  - 100.64.0.0/10 carrier-grade NAT (used by some hosting/panel networks)
+                throw new IllegalArgumentException("Local or private network URLs are not allowed");
+            }
         }
         return uri;
+    }
+
+    /** IPv6 unique-local addresses: fc00::/7. */
+    private static boolean isIpv6UniqueLocal(InetAddress address) {
+        if (!(address instanceof java.net.Inet6Address)) return false;
+        byte[] bytes = address.getAddress();
+        return bytes.length == 16 && (bytes[0] & 0xFE) == 0xFC;
+    }
+
+    /** IPv4 carrier-grade NAT range 100.64.0.0/10. */
+    private static boolean isIpv4Cgnat(InetAddress address) {
+        if (!(address instanceof java.net.Inet4Address)) return false;
+        byte[] bytes = address.getAddress();
+        int first = bytes[0] & 0xFF;
+        int second = bytes[1] & 0xFF;
+        return first == 100 && second >= 64 && second <= 127;
     }
 
     static String safeJarName(URI uri) {
