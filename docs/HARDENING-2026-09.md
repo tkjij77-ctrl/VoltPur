@@ -81,6 +81,18 @@ RESULT: PASS
 يعالج «العيب الخامس» أدناه، وبُني من `fbf6b1e3` (CI Run #80):
 `sha256:38eca2b6805a0f5cf11357bc6ef31c3bfa46de7bbdd40872ed5f90d075a70260` · 91 تأكيدًا PASS · تحقّق حي بأربع جلسات (إجهاز → إغلاق بتحذير → إعادة تشغيل → `confirm` → إقلاع).
 
+### ✅ تحقّق حيّ على استضافة المشغّل (MineStrator) — Build 68
+بعد `/vo up confirm` وإعادة التشغيل، أقلع السيرفر على الجار المنشور، وهذه السطور منسوخة حرفيًا من لوجه:
+```
+Loading Purpur 26.2-DEV-fix/phase-0-1-hardening@fbf6b1e ... for Minecraft 26.2
+[VoltPur] Installed via /vo up -> build #68 | commit fbf6b1e | checksum verified: true | at Fri Sep 18 20:41:55 CEST 2026
+[VoltPur-HW] RAM       : 4915 MB usable by this server (source: /sys/fs/cgroup/memory.max (cgroup v2) + cpu quota)
+[VoltPur-HW]             /proc/meminfo reports 515620 MB (kernel view; lxcfs makes this the container limit too)
+[VoltPur-HW] Container : yes - limits detected (/sys/fs/cgroup/memory.max (cgroup v2) + cpu quota)
+[VoltPur-HW] Heap      : 3078 MB now | OK - 3078 MB of 4915 MB available (upper suggestion: -Xmx3840M)
+```
+**النتيجة:** لا أثر لـ «1.21.10» ولا «4915 MB host» ولا «yes (none)» ولا «source: none» — الأربعة عيوب اختفت على السيرفر الحقيقي. واقتراح الهيب ‎-Xmx3840M‎ مطابق تمامًا لحساب `suggestHeapFor(4915)` (4915 − 1024 = 3891 → 3840 بعد التقريب لـ64). وظهر أيضًا سطر الختم `Installed via /vo up -> build #68` وسطر المقاطعة (cross-check) عند الإقلاع.
+
 ### عيب خامس ظهر لاحقًا على نفس الاستضافة
 المشغّل نفّذ `/vo up 1` (نجح التحميل والتحقّق) ثم **`stop` بدون `/vo up confirm`**، فالسيرفر رجع على Build 66 والجار المُنزَّل بقي بلا استخدام.
 عيب تجربة حقيقي، أُصلح في **Build 68**: خطة التحديث تُحفظ على القرص فتعمل `confirm` بعد إعادة التشغيل، مع **تحذير عند الإغلاق** لو فيه تحديث مُجهَّز لم يُطبَّق. تغطية: ٧ تأكيدات جديدة.
