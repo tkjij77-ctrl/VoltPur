@@ -22,8 +22,10 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.util.ArrayList;
 import java.util.HexFormat;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.zip.ZipEntry;
@@ -68,6 +70,8 @@ public final class VoltPurUpdater {
     private static final Path TEMP_DIR = Path.of(".voltpur-tmp");
     private static final Path STAGED_JAR = TEMP_DIR.resolve("staged-server.jar");
     private static final Path STAGED_SUM = TEMP_DIR.resolve("staged-server.jar.sha256");
+    /** The staged PLAN, so /vo up confirm still works after a restart. */
+    private static final Path STAGED_PLAN = TEMP_DIR.resolve("staged-plan.txt");
 
     /** Generated directories that a clean reinstall may remove (opt-in only). */
     private static final List<String> GENERATED_DIRS = List.of("libraries", "versions", "cache", ".paper-remapped");
@@ -118,12 +122,78 @@ public final class VoltPurUpdater {
                         Path installTarget, boolean jarBackup, boolean worldBackup, List<String> wipeList,
                         long usableSpace, String note) {}
 
+    /**
+     * Saves the staged plan next to the staged jar. Without this, restarting the
+     * server silently threw away a verified, already-downloaded build: /vo up <n>
+     * said "run /vo up confirm", the operator restarted instead, and the next
+     * session answered "Nothing staged" while the 62 MiB download sat on disk.
+     */
+    private static void persistPlan(Plan plan) {
+        try {
+            Files.createDirectories(TEMP_DIR);
+            List<String> lines = List.of(
+                    "tag=" + plan.build().tag(),
+                    "run=" + plan.build().runNumber(),
+                    "sha=" + plan.build().sha(),
+                    "published=" + plan.build().published(),
+                    "bytes=" + plan.bytes(),
+                    "local-sha=" + plan.localSha(),
+                    "published-sha=" + (plan.publishedSha() == null ? "" : plan.publishedSha()),
+                    "verified=" + plan.checksumVerified(),
+                    "target=" + plan.installTarget().toAbsolutePath(),
+                    "jar-backup=" + plan.jarBackup(),
+                    "world-backup=" + plan.worldBackup(),
+                    "staged-at=" + stamp());
+            Files.write(STAGED_PLAN, lines, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (Exception e) {
+            // Not fatal: the in-memory plan still works for this session.
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not persist the staged plan: " + e.getMessage());
+        }
+    }
+
+    /** Reads back a persisted plan, or null when there is none / it is incomplete. */
+    private static Plan loadPersistedPlan() {
+        try {
+            if (!Files.isRegularFile(STAGED_PLAN) || !Files.isRegularFile(STAGED_JAR)) return null;
+            Map<String, String> values = new HashMap<>();
+            for (String line : Files.readAllLines(STAGED_PLAN, StandardCharsets.UTF_8)) {
+                int eq = line.indexOf('=');
+                if (eq > 0) values.put(line.substring(0, eq), line.substring(eq + 1));
+            }
+            String tag = values.get("tag"), run = values.get("run"), sha = values.get("sha");
+            String localSha = values.get("local-sha"), publishedSha = values.get("published-sha");
+            String target = values.get("target");
+            if (tag == null || run == null || sha == null || localSha == null || target == null) return null;
+            return new Plan(new BuildInfo(tag, run, sha, values.getOrDefault("published", "")),
+                    Long.parseLong(values.getOrDefault("bytes", "0")), localSha,
+                    publishedSha == null || publishedSha.isEmpty() ? null : publishedSha,
+                    Boolean.parseBoolean(values.getOrDefault("verified", "false")),
+                    Path.of(target),
+                    Boolean.parseBoolean(values.getOrDefault("jar-backup", "true")),
+                    Boolean.parseBoolean(values.getOrDefault("world-backup", "true")),
+                    List.of(), usableSpace(), "");
+        } catch (Exception unreadable) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Staged plan unreadable: " + unreadable.getMessage());
+            return null;
+        }
+    }
+
+    private static void forgetPlanFile() {
+        try {
+            Files.deleteIfExists(STAGED_PLAN);
+        } catch (IOException e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not delete the staged plan file: " + e.getMessage());
+        }
+    }
+
     public static boolean hasPending() {
+        if (pending == null) pending = loadPersistedPlan();
         return pending != null;
     }
 
     public static String pendingDescription() {
-        Plan plan = pending;
+        Plan plan = pending != null ? pending : loadPersistedPlan();
         if (plan == null) return "none";
         return "build #" + plan.build().runNumber() + " (" + plan.build().shortSha() + ") -> "
                 + plan.installTarget().getFileName();
@@ -286,6 +356,10 @@ public final class VoltPurUpdater {
 
             pending = new Plan(build, bytes, localSha, publishedSha, verified, target,
                     VoltPurConfig.updateKeepJarBackup, VoltPurConfig.updateAutoBackup, List.copyOf(wipeList), usable, "");
+            // Written to disk so the operator can still confirm after a restart. Confirm
+            // re-hashes the staged jar before touching anything, so a stale or tampered
+            // file on disk can never be applied.
+            persistPlan(pending);
 
             printPlan(sender);
         } catch (Exception e) {
@@ -330,7 +404,7 @@ public final class VoltPurUpdater {
 
     /** Applies the staged plan (off the main thread; uses the main thread only to flush saves). */
     public static void confirm(CommandSender sender) {
-        Plan plan = pending;
+        Plan plan = pending != null ? pending : loadPersistedPlan();
         if (plan == null) {
             sender.sendMessage(Component.text("Nothing staged. Use /vo up list then /vo up <number> (or the build number).", NamedTextColor.YELLOW));
             return;
@@ -338,12 +412,14 @@ public final class VoltPurUpdater {
         try {
             if (!Files.isRegularFile(STAGED_JAR)) {
                 pending = null;
+                forgetPlanFile();
                 throw new IOException("Staged jar is missing (cleaned up?). Re-run /vo up <number>.");
             }
             // Re-verify right before the swap: the file existed on disk between two commands.
             String currentSha = sha256(STAGED_JAR);
             if (!currentSha.equalsIgnoreCase(plan.localSha())) {
                 pending = null;
+                forgetPlanFile();
                 throw new IOException("Staged jar changed after verification - aborting.");
             }
 
@@ -381,6 +457,7 @@ public final class VoltPurUpdater {
             writeStamp(plan);
             Files.deleteIfExists(STAGED_JAR);
             Files.deleteIfExists(STAGED_SUM);
+            forgetPlanFile();
             pending = null;
 
             sender.sendMessage(Component.text("[OK] Installed build #" + plan.build().runNumber()
@@ -398,10 +475,12 @@ public final class VoltPurUpdater {
         try {
             Files.deleteIfExists(STAGED_JAR);
             Files.deleteIfExists(STAGED_SUM);
+            forgetPlanFile();
+            forgetPlanFile();
         } catch (IOException e) {
             sender.sendMessage(Component.text("Could not remove the staged file: " + e.getMessage(), NamedTextColor.YELLOW));
         }
-        boolean had = pending != null;
+        boolean had = pending != null || Files.isRegularFile(STAGED_JAR);
         pending = null;
         sender.sendMessage(Component.text(had ? "Staged update cancelled. Nothing was changed."
                 : "Nothing was staged.", NamedTextColor.YELLOW));

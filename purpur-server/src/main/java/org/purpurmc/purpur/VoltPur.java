@@ -104,6 +104,7 @@ public class VoltPur {
             }
             VoltPurModules.setRuntime("PAdminWebUI", false); // starts only on /padmin
         });
+           warnAboutStagedUpdateOnShutdown(logger);
     }
 
     private static String state(boolean enabled) {
@@ -158,6 +159,32 @@ public class VoltPur {
      * (paper-plugin.yml). VoltPur states this plainly instead of claiming a
      * guaranteed "loads before everything" behaviour.
      */
+    /**
+     * Warns when the server stops with a verified build staged but never applied.
+     * That is exactly what happened on a real host: /vo up 1 printed "Type /vo up
+     * confirm to apply", the operator stopped the server instead, and the finished
+     * 62 MiB download was never installed. A warning at shutdown is the last chance
+     * to say it out loud.
+     */
+    private static void warnAboutStagedUpdateOnShutdown(Logger logger) {
+        try {
+            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                try {
+                    if (org.purpurmc.purpur.command.VoltPurUpdater.hasPending()) {
+                        logger.warning("[VoltPur] A verified update is STAGED but was NOT applied: "
+                                + org.purpurmc.purpur.command.VoltPurUpdater.pendingDescription());
+                        logger.warning("[VoltPur] It survives this restart: after the server is back, run /vo up confirm");
+                        logger.warning("[VoltPur] (or /vo up cancel to discard it). Nothing was changed.");
+                    }
+                } catch (Throwable shutdownTooLate) {
+                    // Never let a shutdown hook break the shutdown itself.
+                }
+            }, "VoltPur-Staged-Update-Check"));
+        } catch (Throwable cannotRegister) {
+            logger.fine("[VoltPur] Could not register the staged-update shutdown check: " + cannotRegister.getMessage());
+        }
+    }
+
     public static void ensurePluginProFolder() {
         try {
             File folder = new File("plugin-pro");

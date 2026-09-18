@@ -133,6 +133,36 @@ public final class VerifyCommand {
         check("old build numbers outside the list are rejected", VoltPurUpdater.resolveBuild(builds, "12") == null, "accepted 12");
         check("empty list is handled", VoltPurUpdater.resolveBuild(List.of(), "1") == null, "no null return");
 
+        System.out.println("[updater] a staged build survives a restart (the MineStrator mistake)");
+        // Simulate what /vo up <n> leaves on disk, then pretend we restarted the server.
+        Path tmp = Path.of(".voltpur-tmp");
+        Files.createDirectories(tmp);
+        Files.copy(good, tmp.resolve("staged-server.jar"), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        String stagedSha = VoltPurUpdater.sha256(tmp.resolve("staged-server.jar"));
+        Files.write(tmp.resolve("staged-plan.txt"), List.of(
+                "tag=build-67-6dc4ad04db38253226b2af48ed2051ed2051", "run=67",
+                "sha=6dc4ad04db38253226b2af48ed2051cc157fb286", "published=2026-09-18T15:15:17Z",
+                "bytes=64753387", "local-sha=" + stagedSha, "published-sha=" + stagedSha,
+                "verified=true", "target=" + work.resolve("server.jar").toAbsolutePath(),
+                "jar-backup=true", "world-backup=true"), StandardCharsets.UTF_8);
+        check("hasPending() finds the persisted plan after a restart", VoltPurUpdater.hasPending(), "lost the staged plan");
+        check("pendingDescription() names the build", VoltPurUpdater.pendingDescription().contains("#67"),
+                VoltPurUpdater.pendingDescription());
+        check("pendingDescription() names the jar it will replace", VoltPurUpdater.pendingDescription().contains("server.jar"),
+                VoltPurUpdater.pendingDescription());
+        // cancel() must clean up BOTH the plan file and the staged jar
+        class Sink implements org.bukkit.command.CommandSender {
+            public void sendMessage(String m) { }
+            public void sendMessage(net.kyori.adventure.text.Component m) { }
+            public boolean isOp() { return true; }
+            public boolean hasPermission(String n) { return true; }
+        }
+        VoltPurUpdater.cancel(new Sink());
+        check("cancel() clears the persisted plan", !VoltPurUpdater.hasPending(), "still staged");
+        check("cancel() deletes the plan file", !Files.exists(tmp.resolve("staged-plan.txt")), "file left behind");
+        check("cancel() deletes the staged jar", !Files.exists(tmp.resolve("staged-server.jar")), "jar left behind");
+        check("a plan with no staged jar is ignored", !VoltPurUpdater.hasPending(), "reported a phantom staged build");
+
         System.out.println("[updater] human sizes");
         check("formats MiB", VoltPurUpdater.human(80L * 1024 * 1024).contains("MiB"), VoltPurUpdater.human(80L * 1024 * 1024));
 

@@ -14,12 +14,12 @@ jobs:
 
     steps:
       - name: 🔍 Checkout VoltPur
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: ☕ Setup Java 25
-        uses: actions/setup-java@v6
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '25'
@@ -68,7 +68,7 @@ jobs:
           file VoltPur-26.2.jar
 
       - name: 📤 Upload JAR
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: VoltPur-26.2-Paperclip
           path: |
