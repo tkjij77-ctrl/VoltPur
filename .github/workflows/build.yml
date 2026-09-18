@@ -113,14 +113,18 @@ jobs:
           echo "----- smoke.log (last 45 lines) -----"
           tail -n 45 smoke.log
           echo "-------------------------------------"
-          SHORT="${GITHUB_SHA:0:7}"
+          SHORT=$(printf '%s' "$GITHUB_SHA" | cut -c1-7)
           FAIL=0
           check() { if grep -qE "$2" smoke.log; then echo "  PASS  $1"; else echo "  FAIL  $1"; FAIL=1; fi; }
           if [ "$BOOTED" = "1" ]; then echo "  PASS  the server booted (Done) within the timeout"; else echo "  FAIL  the server never printed 'Done ('"; FAIL=1; fi
           check "the build stamp matches this commit (@$SHORT)" "@$SHORT"
           check "version string is the real one" "Starting minecraft server version 26\.2"
           check "hardware report ran" "VoltPur hardware report"
-          check "heap advice names a source and gives an upper suggestion" "upper suggestion: -Xmx[0-9]+M"
+          # The heap line has three legitimate wordings (OK / TOO HIGH / conservative) and
+          # all of them must name a concrete -Xmx recommendation. The first version of this
+          # check matched only the "upper suggestion:" wording and failed a healthy build
+          # on a runner where the verdict was "conservative" - the gate was right to fail.
+          check "the heap line recommends a concrete -Xmx" "Heap +: .*-Xmx[0-9]+M"
           check "safety defaults are stated at startup" "Safety: item-limiter=off"
           check "updater is advertised at startup" "verified, reversible updates"
           if grep -qE "MB host|yes \(none\)|source: none|1\.21\.10" smoke.log; then
