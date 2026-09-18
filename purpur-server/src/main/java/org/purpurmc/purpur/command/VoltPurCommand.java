@@ -82,7 +82,7 @@ public class VoltPurCommand extends Command {
                 return true;
             }
             case "version", "info" -> {
-                sender.sendMessage(Component.text("[VoltPur] " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.GOLD));
+                sender.sendMessage(Component.text("[VoltPur] " + VoltPur.VERSION + " | MC " + VoltPur.mcVersion(), NamedTextColor.GOLD));
                 sender.sendMessage(Component.text("Implemented modules: " + VoltPurModules.activeCount()
                         + " ACTIVE | " + VoltPurModules.partialCount() + " PARTIAL | "
                         + VoltPurModules.plannedCount() + " PLANNED (honest registry)", NamedTextColor.YELLOW));
@@ -200,7 +200,7 @@ public class VoltPurCommand extends Command {
 
     private void printStatus(CommandSender sender) {
         sender.sendMessage(Component.text("=== VoltPur status ===", NamedTextColor.GOLD));
-        sender.sendMessage(Component.text("Version: " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION, NamedTextColor.YELLOW));
+        sender.sendMessage(Component.text("Version: " + VoltPur.VERSION + " | MC " + VoltPur.mcVersion(), NamedTextColor.YELLOW));
         double[] tps = Bukkit.getServer().getTPS();
         sender.sendMessage(Component.text(String.format("TPS: %.2f / %.2f / %.2f | MSPT avg: %.2f ms",
                 tps[0], tps[1], tps[2], Bukkit.getServer().getAverageTickTime()), NamedTextColor.GOLD));
@@ -257,7 +257,10 @@ public class VoltPurCommand extends Command {
         for (String line : VoltPurBenchmark.snapshot("manual")) {
             sender.sendMessage(Component.text(line, NamedTextColor.AQUA));
         }
-        VoltPurBenchmark.record("manual");
+        // A player's chat output is not in the log, so keep a copy there; for the
+        // console the output already is the log and a copy would print everything twice.
+        boolean fromPlayer = sender instanceof org.bukkit.entity.Player;
+        VoltPurBenchmark.record("manual", fromPlayer);
         sender.sendMessage(Component.text("Snapshot appended to logs/voltpur-benchmark.txt", NamedTextColor.GRAY));
         return true;
     }

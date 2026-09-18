@@ -27,7 +27,7 @@
 **مثال على شكل المخرج (بنية فقط):**
 ```
 == VoltPur benchmark [manual] @ 2026-09-17 15:04:11 ==
-VoltPur   : 26.2.0-rc2 | MC 1.21.10
+VoltPur   : 26.2.0-rc2 | MC 26.2
 TPS       : 20.00 / 20.00 / 20.00 (1m, 5m, 15m)
 MSPT avg  : 3.41 ms (Paper average tick time)
   world   : world (E=142, C=441)

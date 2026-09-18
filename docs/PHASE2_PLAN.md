@@ -1,6 +1,6 @@
 # 🧠 Phase 2 — خطة التحسين الحقيقي (Entity Activation + Hopper)
 
-> أُعدّت هذه الخطة بعد **فكّ ترجمة المصدر الحقيقي** لـ `HopperBlockEntity` (1.21.10) من server jar مع تطبيق mappings Mojang، ومراجعة نظام Paper/Purpur الحالي. لا تخمين.
+> أُعدّت هذه الخطة بعد **فكّ ترجمة المصدر الحقيقي** لـ `HopperBlockEntity` (26.2) من server jar مع تطبيق mappings Mojang، ومراجعة نظام Paper/Purpur الحالي. لا تخمين.
 
 ---
 

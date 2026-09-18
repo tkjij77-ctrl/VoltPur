@@ -53,7 +53,7 @@ public final class VoltPurDiscord {
         Bukkit.getLogger().info("[VoltPur-Discord] Active - notifications go to the configured Discord webhook.");
 
         if (VoltPurConfig.discordAnnounceServer) {
-            send("**VoltPur** server started (" + VoltPur.VERSION + ", MC " + VoltPur.MC_VERSION + ").");
+            send("**VoltPur** server started (" + VoltPur.VERSION + ", MC " + VoltPur.mcVersion() + ").");
             try {
                 Runtime.getRuntime().addShutdownHook(
                         new Thread(() -> send("**VoltPur** server stopping."), "VoltPur-Discord-Shutdown"));

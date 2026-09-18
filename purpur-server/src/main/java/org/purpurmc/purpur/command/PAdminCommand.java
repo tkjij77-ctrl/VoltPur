@@ -57,7 +57,7 @@ public class PAdminCommand extends Command {
                             List<String> moduleLines, List<String> worldLines, int worlds, int players,
                             String os, String arch, int cores, long ramMB, double[] tps) {
         static Snapshot empty() {
-            return new Snapshot(VoltPur.VERSION, VoltPur.MC_VERSION, 0, 0, List.of(), List.of(),
+            return new Snapshot(VoltPur.VERSION, VoltPur.mcVersion(), 0, 0, List.of(), List.of(),
                     0, 0, "?", "?", 0, -1L, new double[]{0d, 0d, 0d});
         }
     }
@@ -245,7 +245,7 @@ public class PAdminCommand extends Command {
                     }
                     double[] tps = Bukkit.getServer().getTPS();
                     snapshot = new Snapshot(
-                            VoltPur.VERSION, VoltPur.MC_VERSION,
+                            VoltPur.VERSION, VoltPur.mcVersion(),
                             VoltPurModules.activeCount(), VoltPurModules.totalCount(),
                             List.copyOf(modules), List.copyOf(worlds),
                             Bukkit.getWorlds().size(), Bukkit.getOnlinePlayers().size(),
@@ -309,7 +309,7 @@ public class PAdminCommand extends Command {
         }
         String json = "{"
                 + "\"version\":\"" + VoltPur.VERSION + "\","
-                + "\"mc\":\"" + VoltPur.MC_VERSION + "\","
+                + "\"mc\":\"" + VoltPur.mcVersion() + "\","
                 + "\"activeModules\":" + snap.activeModules() + ","
                 + "\"totalModules\":" + snap.totalModules() + ","
                 + "\"worlds\":" + snap.worlds() + ","

@@ -11,6 +11,8 @@ public class Bukkit {
     public static Logger getLogger() { return LOGGER; }
     public static BukkitScheduler getScheduler() { return SCHEDULER; }
     public static Server getServer() { return SERVER; }
+    /** Mirrors Paper's Bukkit.getMinecraftVersion() - the value the real server reports. */
+    public static String getMinecraftVersion() { return "26.2"; }
     public static List<World> getWorlds() { return List.of(); }
     public static Collection<Player> getOnlinePlayers() { return List.of(); }
     public static void broadcast(net.kyori.adventure.text.Component message) { }

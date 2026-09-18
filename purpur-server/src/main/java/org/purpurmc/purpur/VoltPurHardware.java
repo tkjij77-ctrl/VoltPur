@@ -53,7 +53,9 @@ public final class VoltPurHardware {
     // ---- container quota ----
     private static long quotaRamBytes = -1L;
     private static double quotaCores = -1d;
-    private static String quotaSource = "none";
+    private static String quotaSource = "";          // filled by readCgroupLimits(); never left as a bare "none"
+    private static long jvmReportedRamBytes = -1L;   // what the JVM believes it has (cgroup-aware on modern JDKs)
+    private static long kernelMemTotalBytes = -1L;   // /proc/meminfo MemTotal (lxcfs makes this the quota)
 
     // ---- jdk module facts ----
     private static boolean vectorShippedByJdk;
@@ -76,7 +78,12 @@ public final class VoltPurHardware {
             java.lang.management.OperatingSystemMXBean base =
                     java.lang.management.ManagementFactory.getOperatingSystemMXBean();
             if (base instanceof com.sun.management.OperatingSystemMXBean extended) {
-                hostRamBytes = extended.getTotalPhysicalMemorySize();
+                // getTotalMemorySize() is the cgroup-aware value; the deprecated
+                // getTotalPhysicalMemorySize() was mislabelled "host" even when the
+                // JVM could only see the container limit (a real server log printed
+                // "4915 MB host" for a container whose host is far larger).
+                hostRamBytes = extended.getTotalMemorySize();
+                jvmReportedRamBytes = hostRamBytes;
             }
         } catch (Throwable t) {
             hostRamBytes = -1L;
@@ -87,6 +94,7 @@ public final class VoltPurHardware {
         isArm = arch.contains("aarch64") || arch.contains("arm");
 
         cpuModel = readCpuModel();
+        kernelMemTotalBytes = readKernelMemTotalBytes();
         readCgroupLimits();
 
         vectorShippedByJdk = ModuleFinder.ofSystem().find("jdk.incubator.vector").isPresent();
@@ -99,6 +107,13 @@ public final class VoltPurHardware {
         if (memoryMax == null) memoryMax = readLongFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); // v1
         if (memoryMax != null && memoryMax > 0 && memoryMax < (1L << 58)) {
             quotaRamBytes = memoryMax;
+            quotaSource = "/sys/fs/cgroup/memory.max (cgroup v2)";
+        } else {
+            Long v1 = readLongFile("/sys/fs/cgroup/memory/memory.limit_in_bytes"); // v1
+            if (v1 != null && v1 > 0 && v1 < (1L << 58)) {
+                quotaRamBytes = v1;
+                quotaSource = "/sys/fs/cgroup/memory/memory.limit_in_bytes (cgroup v1)";
+            }
         }
 
         String cpuMax = readStringFile("/sys/fs/cgroup/cpu.max");                  // v2: "<quota> <period>" or "max <period>"
@@ -121,8 +136,16 @@ public final class VoltPurHardware {
                 quotaCores = Math.max(0.1d, (double) quota / (double) period);
             }
         }
-        if (quotaRamBytes > 0 && hostRamBytes > 0 && quotaRamBytes < hostRamBytes) quotaSource = "cgroup memory limit";
-        else if (quotaCores > 0 && quotaCores < availableCores) quotaSource = "cgroup cpu quota";
+        if (quotaCores > 0 && quotaSource.isEmpty()) {
+            quotaSource = "/sys/fs/cgroup/cpu.max (cgroup v2 cpu quota)";
+        } else if (quotaCores > 0 && !quotaSource.contains("cpu")) {
+            quotaSource = quotaSource + " + cpu quota";
+        }
+        if (quotaSource.isEmpty()) {
+            // No readable cgroup file: we are still told we are in a container, so
+            // say WHAT the number is instead of printing "none".
+            quotaSource = "not readable - using the JVM-reported total (cgroup-aware)";
+        }
     }
 
     private static Long readLongFile(String path) {
@@ -183,7 +206,22 @@ public final class VoltPurHardware {
     public static boolean isVectorShippedByJdk() { return vectorShippedByJdk; }
     public static long getMaxHeapMB() { return maxHeapBytes / (1024L * 1024L); }
 
-    /** Physical RAM in MB (host machine), or -1 if unreported. */
+    /** Read /proc/meminfo MemTotal - the kernel's view (equals the quota under lxcfs). */
+    private static long readKernelMemTotalBytes() {
+        try {
+            for (String line : java.nio.file.Files.readAllLines(Path.of("/proc/meminfo"), StandardCharsets.UTF_8)) {
+                if (line.startsWith("MemTotal:")) {
+                    String numeric = line.replaceAll("[^0-9]", "");
+                    if (!numeric.isEmpty()) return Long.parseLong(numeric) * 1024L; // kB -> bytes
+                }
+            }
+        } catch (Throwable notLinux) {
+            // Not Linux, or /proc not mounted: keep -1 and say so.
+        }
+        return -1L;
+    }
+
+    /** Physical RAM in MB as reported by the JVM, or -1 if unreported. */
     public static long getPhysicalRamMB() {
         return hostRamBytes < 0 ? -1L : hostRamBytes / (1024L * 1024L);
     }
@@ -212,15 +250,47 @@ public final class VoltPurHardware {
     // ---- recommendations ----
 
     /** Suggested -Xmx: half of what the server may actually use, with sane bounds. */
+    /**
+     * Heap size to recommend. This used to be HALF of the available RAM, which
+     * told a real 4.8 GB container to shrink its working 3077 MB heap to 2457 MB -
+     * advice that wastes memory without making anything safer. What actually needs
+     * to stay outside the heap is metaspace + thread stacks + netty/libdeflate
+     * buffers + GC structures; 1 GB of headroom (or 1/8 of RAM, whichever is
+     * larger) covers that comfortably on a Minecraft server.
+     */
     public static long suggestHeapMB() {
         long available = getEffectiveRamMB();
         if (available <= 0) available = getMaxHeapMB();
-        long suggested = available / 2L;
-        long ceiling = Math.max(512L, available - 512L); // never eat the whole quota
-        if (suggested > ceiling) suggested = ceiling;
+        return suggestHeapFor(available);
+    }
+
+    /**
+     * Pure form of the rule above, so it can be unit-tested with a fixed number of
+     * megabytes instead of whatever machine the test runs on.
+     */
+    public static long suggestHeapFor(long availableMB) {
+        if (availableMB <= 0) return 512L;
+        long overhead = Math.max(1024L, availableMB / 8L);
+        long suggested = availableMB - overhead;
         if (suggested > 16384L) suggested = 16384L;
-        if (suggested < 512L) suggested = Math.min(512L, Math.max(128L, available / 2L));
-        return suggested;
+        if (suggested < 1024L) suggested = Math.max(256L, availableMB / 2L);
+        return (suggested / 64L) * 64L;   // round down to a tidy 64 MB step
+    }
+
+    /** Human verdict for the heap the server is running with right now. */
+    public static String heapVerdict() {
+        long current = getMaxHeapMB();
+        long available = getEffectiveRamMB();
+        long recommended = suggestHeapMB();
+        if (current <= 0 || available <= 0) return "unknown (heap or quota unreported)";
+        if (current > available) {
+            return "TOO HIGH - heap (" + current + " MB) is larger than the available " + available
+                    + " MB; the JVM can be OOM-killed. Try -Xmx" + recommended + "M";
+        }
+        if (current < available / 4L) {
+            return "conservative - " + current + " MB of " + available + " MB used; you can safely raise it towards -Xmx" + recommended + "M";
+        }
+        return "OK - " + current + " MB of " + available + " MB available (upper suggestion: -Xmx" + recommended + "M)";
     }
 
     /** Aikar-style G1 flags sized to the machine/quota, with the vector fix. */
@@ -297,7 +367,9 @@ public final class VoltPurHardware {
             warnings.add("Few usable cores (" + effectiveCores + ") - keep view-distance <= 8 and avoid heavy plugins.");
         }
         if (ram > 0 && ram < 2048) {
-            warnings.add("Only " + ram + " MB RAM available to the server - 1.21.10 will struggle; consider upgrading.");
+            warnings.add("Only " + ram + " MB RAM available to the server - Minecraft "
+                    + (VoltPur.mcVersion().equals(VoltPur.MC_VERSION_FALLBACK) ? "" : VoltPur.mcVersion() + " ")
+                    + "will struggle with heavy plugins; consider more RAM.");
         }
         if (heap > 0 && heap < 1024) {
             warnings.add("Max heap is small (" + heap + " MB). Consider -Xmx" + suggestHeapMB() + "M.");
@@ -313,7 +385,7 @@ public final class VoltPurHardware {
         try {
             int major = Runtime.version().feature();
             if (major < 21) {
-                warnings.add("Java " + major + " is below the recommended 21+ for 1.21.10; this project targets Java 25.");
+                warnings.add("Java " + major + " is below the recommended 21+ for modern Minecraft; this project targets Java 25.");
             } else if (major < 25) {
                 warnings.add("Java " + major + " works, but this project targets Java 25.");
             }
@@ -337,10 +409,15 @@ public final class VoltPurHardware {
         out.add("CPU       : " + getCpuModel());
         out.add("Cores     : " + availableCores + " logical" + (quotaCores > 0 ? " (quota: " + getEffectiveCores() + " usable)" : ""));
         out.add("Arch      : " + (isArm ? "ARM64/ARM" : osArch));
-        out.add("RAM       : " + (getPhysicalRamMB() > 0 ? getPhysicalRamMB() + " MB host" : "host unreported")
-                + (quotaRamBytes > 0 ? " | " + (quotaRamBytes / (1024L * 1024L)) + " MB available to this server" : ""));
-        out.add("Container : " + (isContainer() ? "yes (" + quotaSource + ")" : "no/unlimited"));
-        out.add("Max heap  : " + getMaxHeapMB() + " MB (recommended -Xmx" + suggestHeapMB() + "M)");
+        out.add("RAM       : " + getEffectiveRamMB() + " MB usable by this server (source: " + quotaSource + ")");
+        if (kernelMemTotalBytes > 0 && kernelMemTotalBytes / (1024L * 1024L) != getEffectiveRamMB()) {
+            out.add("            /proc/meminfo reports " + (kernelMemTotalBytes / (1024L * 1024L))
+                    + " MB (kernel view; lxcfs makes this the container limit too)");
+        }
+        out.add("Container : " + (isContainer()
+                ? "yes - limits detected (" + quotaSource + ")"
+                : "not detected - no readable cgroup limit file; advice uses the JVM-reported total"));
+        out.add("Heap      : " + getMaxHeapMB() + " MB now | " + heapVerdict());
         out.add("Java      : " + javaVersion);
         out.add("Vector    : " + (vectorResolved ? "loaded" : vectorShippedByJdk ? "shipped by JDK, not loaded" : "not available"));
 

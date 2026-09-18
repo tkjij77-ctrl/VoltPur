@@ -1,7 +1,7 @@
 # ⚡ VoltPur — Minecraft Server Software
 
 [![Build](https://github.com/tkjij77-ctrl/VoltPur/actions/workflows/build.yml/badge.svg?branch=ver/26.2)](https://github.com/tkjij77-ctrl/VoltPur/actions)
-![MC](https://img.shields.io/badge/Minecraft-1.21.10-brightgreen?style=for-the-badge)
+![MC](https://img.shields.io/badge/Minecraft-26.2-brightgreen?style=for-the-badge)
 ![Java](https://img.shields.io/badge/Java-25-orange?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
 
@@ -68,7 +68,7 @@ java -Xms2G -Xmx2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled \
 
 ## 🔬 التحقق قبل أي دمج
 ```bash
-tools/verify/run-verify.sh     # ترجمة فعلية + 74 فحصًا سلوكيًا (JDK 21+)
+tools/verify/run-verify.sh     # ترجمة فعلية + 85 فحصًا سلوكيًا (JDK 21+)
 ```
 يفشل السكربت إذا كسرت أي تغيير الافتراضات الآمنة أو فحص الروابط أو تحقق الأرشيف. تفاصيل ما يُثبته وما لا يُثبته: `tools/verify/README.md`.
 

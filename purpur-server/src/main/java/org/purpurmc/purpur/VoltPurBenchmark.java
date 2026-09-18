@@ -37,7 +37,7 @@ public final class VoltPurBenchmark {
     public static List<String> snapshot(String tag) {
         List<String> out = new ArrayList<>();
         out.add("== VoltPur benchmark [" + tag + "] @ " + TIMESTAMP.format(new Date()) + " ==");
-        out.add("VoltPur   : " + VoltPur.VERSION + " | MC " + VoltPur.MC_VERSION);
+        out.add("VoltPur   : " + VoltPur.VERSION + " | MC " + VoltPur.mcVersion());
 
         try {
             double[] tps = Bukkit.getServer().getTPS();
@@ -109,10 +109,19 @@ public final class VoltPurBenchmark {
                 + (failures > 0 ? " - run /voltpur modules to see which module is failing" : " (no module failures recorded)");
     }
 
-    /** Appends a snapshot to logs/voltpur-benchmark.txt, keeping the file bounded. */
-    public static void record(String tag) {
+    /**
+     * Appends a snapshot to logs/voltpur-benchmark.txt, keeping the file bounded.
+     *
+     * @param echoToConsole true only when a PLAYER asked for it: a player sees the
+     *        output in chat and never in the log, so the log needs a copy. When the
+     *        console asks, its output already IS the log, and echoing duplicated
+     *        every line in the server log.
+     */
+    public static void record(String tag, boolean echoToConsole) {
         List<String> lines = snapshot(tag);
-        for (String line : lines) Bukkit.getLogger().info("[VoltPur-Bench] " + line);
+        if (echoToConsole) {
+            for (String line : lines) Bukkit.getLogger().info("[VoltPur-Bench] " + line);
+        }
         VoltPurGuard.run(MODULE, () -> {
             try {
                 Path logDir = Path.of("logs");
@@ -121,7 +130,9 @@ public final class VoltPurBenchmark {
                 Files.write(file, lines, StandardCharsets.UTF_8,
                         Files.exists(file) ? StandardOpenOption.APPEND : StandardOpenOption.CREATE);
                 trim(file);
-                Bukkit.getLogger().info("[VoltPur-Bench] Snapshot appended to logs/voltpur-benchmark.txt");
+                if (echoToConsole) {
+                    Bukkit.getLogger().info("[VoltPur-Bench] Snapshot appended to logs/voltpur-benchmark.txt");
+                }
             } catch (IOException e) {
                 throw new RuntimeException(e);
             }

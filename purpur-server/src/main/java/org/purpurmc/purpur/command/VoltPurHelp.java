@@ -34,7 +34,7 @@ public class VoltPurHelp extends Command {
     @Override
     public boolean execute(CommandSender sender, String label, String[] args) {
         sender.sendMessage("§6━━━━━━━━━━ §e⚡ VoltPur §6━━━━━━━━━━");
-        sender.sendMessage("§7v" + VoltPur.VERSION + " §8• §7MC " + VoltPur.MC_VERSION
+        sender.sendMessage("§7v" + VoltPur.VERSION + " §8• §7MC " + VoltPur.mcVersion()
                 + " §8• §7modules: §a" + VoltPurModules.activeCount() + " §7implemented / §e"
                 + VoltPurModules.partialCount() + " §7partial / §c" + VoltPurModules.plannedCount() + " §7planned");
         sender.sendMessage("");

@@ -99,6 +99,24 @@ public final class VerifyCore {
         check("paper keys use the real file name", settings.stream().anyMatch(s -> s.contains("(paper-global.yml) chunk-system.io-threads")), settings.toString());
         check("no legacy key names", settings.stream().noneMatch(s -> s.contains("async-chunk-loading-threads") || s.contains("max-auto-save")), settings.toString());
 
+        System.out.println("[core] regressions found in a REAL server log (Build 66 on MineStrator)");
+        check("MC version comes from the server, not a constant", "26.2".equals(VoltPur.mcVersion()),
+                "got '" + VoltPur.mcVersion() + "' - the log said the server was Minecraft 26.2");
+        check("no stale MC constant left", !"1.21.10".equals(VoltPur.mcVersion()), "still 1.21.10");
+        // heap rule: the log showed a 4915 MB container being told to shrink a working 3077 MB heap to 2457 MB
+        check("4915 MB container -> about 3.8 GB (not half)", VoltPurHardware.suggestHeapFor(4915L) == 3840L,
+                "got " + VoltPurHardware.suggestHeapFor(4915L));
+        check("advice never exceeds the available RAM", VoltPurHardware.suggestHeapFor(4915L) <= 4915L, "over");
+        check("a working 3077 MB heap is not told to shrink", VoltPurHardware.suggestHeapFor(4915L) >= 3077L,
+                "still telling the operator to shrink");
+        check("2 GB container -> 1 GB heap", VoltPurHardware.suggestHeapFor(2048L) == 1024L, "got " + VoltPurHardware.suggestHeapFor(2048L));
+        check("tiny 1 GB container stays sane", VoltPurHardware.suggestHeapFor(1024L) == 512L, "got " + VoltPurHardware.suggestHeapFor(1024L));
+        check("big machines are capped at 16 GB", VoltPurHardware.suggestHeapFor(65536L) == 16384L, "got " + VoltPurHardware.suggestHeapFor(65536L));
+        check("heap verdict is produced", VoltPurHardware.heapVerdict().matches(".*(OK|TOO HIGH|conservative|unknown).*"), VoltPurHardware.heapVerdict());
+        check("container source is never 'none'", !"none".equals(VoltPurHardware.getQuotaSource()), VoltPurHardware.getQuotaSource());
+        check("container source is never empty", VoltPurHardware.getQuotaSource() != null && !VoltPurHardware.getQuotaSource().isBlank(),
+                "'" + VoltPurHardware.getQuotaSource() + "'");
+
         System.out.println("[core] module registry is honest");
         check("item limiter marked opt-in", VoltPurModules.isOptIn("ItemLimiter"), "not marked");
         check("hopper optimisation is PLANNED", VoltPurModules.all().get("HopperOptimization") == VoltPurModules.Status.PLANNED, "marked active");

@@ -26,7 +26,30 @@ public class VoltPur {
     /** Single source of truth for the version string (docs must match this). */
     public static final String VERSION = "26.2.0-rc2";
     public static final String BRAND = "VoltPur";
-    public static final String MC_VERSION = "1.21.10";
+    /**
+     * Fallback only - used when the server cannot be asked (very early startup).
+     * The real value comes from mcVersion(), which asks the running server. This
+     * constant used to be the single source of truth and it silently went stale:
+     * the server reported "Minecraft 26.2" while VoltPur printed "MC 1.21.10".
+     */
+    public static final String MC_VERSION_FALLBACK = "unknown";
+
+    private static String mcVersionCache = null;
+
+    /** Minecraft version as reported by the running server (never a guess). */
+    public static String mcVersion() {
+        if (mcVersionCache != null) return mcVersionCache;
+        try {
+            String reported = org.bukkit.Bukkit.getMinecraftVersion();
+            if (reported != null && !reported.isBlank()) {
+                mcVersionCache = reported.trim();
+                return mcVersionCache;
+            }
+        } catch (Throwable notReadyYet) {
+            // Called before the server finished starting, or the API is missing.
+        }
+        return MC_VERSION_FALLBACK;
+    }
 
     private static boolean initialized = false;
 
