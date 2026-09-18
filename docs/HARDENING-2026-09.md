@@ -75,7 +75,13 @@ RESULT: PASS
 | 3 | `RAM: 4915 MB host` و`Container: yes (none)` | تسمية المصدر الفعلي + عرض `/proc/meminfo` كرؤية النواة + لا `none` أبدًا | تأكيدان |
 | 4 | كل سطر benchmark مطبوع مرتين في الكونسول | نسخة اللوج للاعبين فقط | — |
 
-**تحقّق:** `tools/verify/run-verify.sh` ⇒ **91 PASS / 0 FAIL** (كانت 74).
+**تحقّق:** `tools/verify/run-verify.sh` ⇒ **97 PASS / 0 FAIL** (كانت 74 عند أول جلسة، ثم 91 في Build 67).
+
+### Build 69 — إصلاح صدق + حاجز CI
+**السبب:** لوج المشغّل كشف أن خطة التحديث تعِد بنسخة احتياطية للعالم ثم يفشل التنفيذ فورًا (`world zip: a world backup runs before the swap` ← `Backup FAILED: modules.backup.enabled=false`). السبب في الكود: الخطة تقرأ `update.auto-backup` فقط، بينما التنفيذ يشترط أيضًا `modules.backup.enabled`.
+**الإصلاح:** `worldBackupLine(autoBackup, moduleEnabled)` بثلاث حالات صريحة + رسالة `confirm` متطابقة (`World backup SKIPPED` بدل `FAILED`). **تغطية:** 6 تأكيدات جديدة.
+**إضافة:** خطوة **Smoke test** في CI تُقلع الجار المَبنِي على JDK 25 وتتحقق من 8 شروط في اللوج الحقيقي، وتفشل الوظيفة (فلا إصدار) إذا رجع أي سلوك قديم. جُرِّبت الخطوة محليًا على الجار نفسه: **نجحت الشروط الثمانية**، واللوج محفوظ في `VoltPur-Build69/smoke-local-evidence.log`.
+**تصحيح سجل:** كوميت Build 68 كان قد أعاد إجراءات CI إلى v4 بالغلط (تحذيرات Node 20 عادت في #80–#82) — أُعيد رفعها إلى v7/v6/v7 في هذا البناء.
 
 ### Build 68 — الإصدار الرسمي الحالي
 يعالج «العيب الخامس» أدناه، وبُني من `fbf6b1e3` (CI Run #80):

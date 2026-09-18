@@ -133,6 +133,17 @@ public final class VerifyCommand {
         check("old build numbers outside the list are rejected", VoltPurUpdater.resolveBuild(builds, "12") == null, "accepted 12");
         check("empty list is handled", VoltPurUpdater.resolveBuild(List.of(), "1") == null, "no null return");
 
+        System.out.println("[updater] the world-zip line never promises a backup the module cannot deliver");
+        String both = VoltPurUpdater.worldBackupLine(true, true);
+        String moduleOff = VoltPurUpdater.worldBackupLine(true, false);
+        String autoOff = VoltPurUpdater.worldBackupLine(false, true);
+        check("both switches on -> the plan promises a real backup", both.contains("runs before the swap"), both);
+        check("backup module off -> the plan says SKIPPED (not 'runs')", moduleOff.startsWith("SKIPPED"), moduleOff);
+        check("module off -> the reason is named", moduleOff.contains("modules.backup.enabled=false"), moduleOff);
+        check("module off -> a word the operator must never see here is absent", !moduleOff.contains("runs before the swap"), moduleOff);
+        check("auto-backup off -> says disabled, not SKIPPED", autoOff.startsWith("disabled"), autoOff);
+        check("the three states are distinct", new java.util.HashSet<>(List.of(both, moduleOff, autoOff)).size() == 3, "states collapsed");
+
         System.out.println("[updater] a staged build survives a restart (the MineStrator mistake)");
         // Simulate what /vo up <n> leaves on disk, then pretend we restarted the server.
         Path tmp = Path.of(".voltpur-tmp");

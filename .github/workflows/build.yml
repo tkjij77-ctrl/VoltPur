@@ -14,12 +14,12 @@ jobs:
 
     steps:
       - name: 🔍 Checkout VoltPur
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
       - name: ☕ Setup Java 25
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
           java-version: '25'
@@ -68,7 +68,7 @@ jobs:
           file VoltPur-26.2.jar
 
       - name: 📤 Upload JAR
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: VoltPur-26.2-Paperclip
           path: |
@@ -77,6 +77,68 @@ jobs:
             purpur-server/build/libs/server.jar
             purpur-server/build/libs/VoltPur-26.2.jar.sha256
             purpur-server/build/libs/*-paperclip.jar
+
+      # A jar that builds is not a jar that boots. The four honesty fixes (MC version,
+      # container RAM, cgroup source, single benchmark print) were all runtime behaviour
+      # that only showed up on a real server - never in CI. This step boots the built jar
+      # on JDK 25 and fails the job if the live console output regresses.
+      - name: 🧪 Smoke test - boot the built jar and check the live console
+        run: |
+          set -uo pipefail
+          SMOKE="$GITHUB_WORKSPACE/.smoke"
+          rm -rf "$SMOKE"; mkdir -p "$SMOKE"; cd "$SMOKE"
+          echo "eula=true" > eula.txt
+          cat > server.properties <<'PROPS'
+          level-name=smoke
+          level-type=minecraft\:flat
+          view-distance=3
+          simulation-distance=3
+          online-mode=false
+          server-port=25599
+          PROPS
+          ( cd "$GITHUB_WORKSPACE/purpur-server/build/libs" && sha256sum -c VoltPur-26.2.jar.sha256 )
+          cp "$GITHUB_WORKSPACE/purpur-server/build/libs/VoltPur-26.2.jar" server.jar
+          # Paperclip applies its patches and then relaunches the real server as a CHILD
+          # process, so "the PID we started" is not reliably the server. Watch the log for
+          # evidence instead of watching one PID, and stop the server by command line.
+          java -Xms256M -Xmx512M -jar server.jar --nogui > smoke.log 2>&1 &
+          BOOTED=0
+          for i in $(seq 1 125); do
+            if grep -q 'Done (' smoke.log 2>/dev/null; then BOOTED=1; break; fi
+            sleep 2
+          done
+          pkill -f -- '-jar server.jar' 2>/dev/null || true
+          sleep 3
+          pkill -9 -f -- '-jar server.jar' 2>/dev/null || true
+          echo "----- smoke.log (last 45 lines) -----"
+          tail -n 45 smoke.log
+          echo "-------------------------------------"
+          SHORT="${GITHUB_SHA:0:7}"
+          FAIL=0
+          check() { if grep -qE "$2" smoke.log; then echo "  PASS  $1"; else echo "  FAIL  $1"; FAIL=1; fi; }
+          if [ "$BOOTED" = "1" ]; then echo "  PASS  the server booted (Done) within the timeout"; else echo "  FAIL  the server never printed 'Done ('"; FAIL=1; fi
+          check "the build stamp matches this commit (@$SHORT)" "@$SHORT"
+          check "version string is the real one" "Starting minecraft server version 26\.2"
+          check "hardware report ran" "VoltPur hardware report"
+          check "heap advice names a source and gives an upper suggestion" "upper suggestion: -Xmx[0-9]+M"
+          check "safety defaults are stated at startup" "Safety: item-limiter=off"
+          check "updater is advertised at startup" "verified, reversible updates"
+          if grep -qE "MB host|yes \(none\)|source: none|1\.21\.10" smoke.log; then
+            echo "  FAIL  strings from the fixed defects are back in the live output:"
+            grep -nE "MB host|yes \(none\)|source: none|1\.21\.10" smoke.log | head -5
+            FAIL=1
+          else
+            echo "  PASS  no old defect strings ('MB host' / 'yes (none)' / 'source: none' / '1.21.10')"
+          fi
+          exit $FAIL
+
+      - name: 📎 Upload smoke-test log
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: smoke-log-${{ github.run_number }}
+          path: .smoke/smoke.log
+          if-no-files-found: warn
 
       - name: 🚀 Create Release (public download for /vo up without token)
         if: success() && github.ref == 'refs/heads/ver/26.2'

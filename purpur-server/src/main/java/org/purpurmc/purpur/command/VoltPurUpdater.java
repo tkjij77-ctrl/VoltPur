@@ -387,9 +387,11 @@ public final class VoltPurUpdater {
         sender.sendMessage(Component.text("  rollback   : " + (plan.jarBackup()
                 ? "current jar is copied to <jar>.bak-<timestamp> (use /vo rollback)" : "DISABLED (update.keep-jar-backup=false)"),
                 plan.jarBackup() ? NamedTextColor.GREEN : NamedTextColor.RED));
-        sender.sendMessage(Component.text("  world zip  : " + (plan.worldBackup()
-                ? "a world backup runs before the swap" : "disabled (update.auto-backup=false)"),
-                plan.worldBackup() ? NamedTextColor.GREEN : NamedTextColor.YELLOW));
+        String worldBackupLine = worldBackupLine(plan.worldBackup(), VoltPurConfig.backupEnabled);
+        boolean worldBackupRuns = plan.worldBackup() && VoltPurConfig.backupEnabled;
+        sender.sendMessage(Component.text("  world zip  : " + worldBackupLine,
+                worldBackupRuns ? NamedTextColor.GREEN
+                        : (VoltPurConfig.backupEnabled ? NamedTextColor.YELLOW : NamedTextColor.RED)));
         if (plan.wipeList().isEmpty()) {
             sender.sendMessage(Component.text("  delete     : NOTHING - plugins, configs, worlds, backups are kept.", NamedTextColor.GREEN));
         } else {
@@ -423,7 +425,11 @@ public final class VoltPurUpdater {
                 throw new IOException("Staged jar changed after verification - aborting.");
             }
 
-            if (plan.worldBackup()) {
+            if (plan.worldBackup() && !VoltPurConfig.backupEnabled) {
+                sender.sendMessage(Component.text("[VoltPur] World backup SKIPPED: modules.backup.enabled=false "
+                        + "- the update itself does not need it, but there will be no world zip to fall back on.",
+                        NamedTextColor.RED));
+            } else if (plan.worldBackup()) {
                 sender.sendMessage(Component.text("[VoltPur] Running a world backup before the update...", NamedTextColor.YELLOW));
                 VoltPurBackup.Result backup = VoltPurBackup.backupForUpdate();
                 sender.sendMessage(Component.text(backup.ok()
@@ -747,6 +753,25 @@ public final class VoltPurUpdater {
 
     private static String stamp() {
         return new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date());
+    }
+
+    /**
+     * The world-backup line shown in the update plan. Two switches decide it, and the
+     * plan must not promise a backup the backup module cannot deliver: update.auto-backup
+     * says "run a backup before the swap", while modules.backup.enabled decides whether
+     * the backup module does anything at all. A real operator saw the plan print
+     * "a world backup runs before the swap" and, seconds after confirming, "Backup
+     * FAILED: modules.backup.enabled=false". Both lines were true; together they were
+     * misleading, so the plan now reports all three states explicitly.
+     */
+    static String worldBackupLine(boolean autoBackup, boolean moduleEnabled) {
+        if (!moduleEnabled) {
+            return "SKIPPED - modules.backup.enabled=false (turn it on to protect updates with a world zip)";
+        }
+        if (!autoBackup) {
+            return "disabled (update.auto-backup=false)";
+        }
+        return "a world backup runs before the swap";
     }
 
     static String human(long bytes) {
