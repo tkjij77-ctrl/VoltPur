@@ -78,7 +78,9 @@ RESULT: PASS
 **تحقّق:** `tools/verify/run-verify.sh` ⇒ **85 PASS / 0 FAIL** (كانت 74).
 
 ## الإصدار الرسمي
-**Build 66** نُشر كإصدار **رسمي (Releases/Latest)** على GitHub:
+**Build 67** هو الإصدار الرسمي الحالي (Releases/Latest) — `build-67-6dc4ad04db38253226b2af48ed2051cc157fb286`، مُنتَج من CI (Run #77، Java 25) على نفس الكوميت. يضم الإصلاحات الأربعة المستخرَجة من لوج سيرفر حقيقي + تحديث الـ actions إلى `checkout@v7`/`setup-java@v6`/`upload-artifact@v7`. sha256 الجار: `5007669905bf89111f25fa20586057f55e835ac15f0d54910956cb343f6b80d3`، وإقلاع مُختبَر: `Done (11.886s)`.
+
+**Build 66** كان الإصدار الرسمي قبله (`build-66-b7def480...`) وما زال متاحًا للتحميل:
 - الوسم: `build-66-b7def480e4cf157dae5322b562ed880ac7569854` · ٤ أصول: `VoltPur-26.2.jar`, `.sha256`, `server.jar`, `VoltPur.jar`
 - الجار: 64,753,387 بايت · sha256 = `3f589c297e8a3018a471bbae8251dae2a24b6cf6c252af36efe4dbd8fce00111` (مطابق للبصمة التي حسبها GitHub عند الرفع)
 - تحقّق فعلي: `/vo up list` يعرضه `[1] build #66`, و`/vo up 1` حمّله وتحقق من البصمة وطبع خطة لا تحذف شيئًا
