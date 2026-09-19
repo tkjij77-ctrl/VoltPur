@@ -77,7 +77,15 @@ RESULT: PASS
 
 **تحقّق:** `tools/verify/run-verify.sh` ⇒ **97 PASS / 0 FAIL** (كانت 74 عند أول جلسة، ثم 91 في Build 67).
 
-### Build 70 — تقوية مسار الرجوع (`/vo rollback`)
+### Build 70 — تقوية مسار الرجوع (`/vo rollback`) — تحقّق حي بأربعة سيناريوهات
+**النتائج المنفَّذة** (لوجات كاملة في `VoltPur-Build70/scenario-*.log`):
+| السيناريو | الدليل الحرفي |
+|---|---|
+| نسخة سليمة | `server.jar.bak-20260901-000000  61.8 MiB  VERIFIED` ⇒ `[OK] Rolled back … (VERIFIED)` و`server.jar` = جار Build 68 المنشور بالبصمة |
+| نسخة تالفة | `MISMATCH` ⇒ `REFUSING to roll back … damaged or replaced` + `Nothing was changed` (البصمة قبل/بعد متطابقة، وصفر نسخ أمان) |
+| نسخة قديمة بلا بصمة | `NO CHECKSUM` + «no recorded sha256 … restoring it unverified» ثم رجوع ناجح |
+| تحديث حقيقي | `Selected build #69` · `VERIFIED` · `Previous jar saved … (sha256 recorded)` · البيان كُتب تلقائيًا |
+
 **السبب:** كانت `/vo rollback` تنسخ أحدث `<jar>.bak-*` **بلا أي تحقق**، وتختار «الأحدث» بحسب زمن التعديل فقط.
 **ما أُضيف:**
 - `/vo rollback list` — جدول النسخ (الأحدث أولًا) مع الحجم وحالة سلامة صادقة: `VERIFIED` / `NO CHECKSUM` / `MISMATCH`.
