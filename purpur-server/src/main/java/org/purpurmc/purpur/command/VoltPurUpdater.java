@@ -441,7 +441,17 @@ public final class VoltPurUpdater {
             if (plan.jarBackup()) {
                 Path backup = Path.of(plan.installTarget() + ".bak-" + stamp());
                 Files.copy(plan.installTarget(), backup, StandardCopyOption.REPLACE_EXISTING);
-                sender.sendMessage(Component.text("[VoltPur] Previous jar saved as " + backup.getFileName(), NamedTextColor.GRAY));
+                recordBackupChecksum(plan.installTarget().getParent(),
+                        plan.installTarget().getFileName().toString(), backup);
+                sender.sendMessage(Component.text("[VoltPur] Previous jar saved as " + backup.getFileName()
+                        + " (sha256 recorded - see /vo rollback list)", NamedTextColor.GRAY));
+                int pruned = pruneBackups(plan.installTarget().getParent(),
+                        plan.installTarget().getFileName().toString(), VoltPurConfig.updateKeepBackups);
+                if (pruned > 0) {
+                    sender.sendMessage(Component.text("[VoltPur] Rotation: removed " + pruned
+                            + " older backup(s) (update.keep-backups=" + VoltPurConfig.updateKeepBackups + ")",
+                            NamedTextColor.GRAY));
+                }
             }
 
             for (String entry : plan.wipeList()) {
@@ -494,31 +504,70 @@ public final class VoltPurUpdater {
 
     // ------------------------------------------------------------------ rollback
 
-    /** Restores the newest <jar>.bak-* backup. */
+    /** Restores the newest <jar>.bak-* backup (integrity-checked). */
     public static void rollback(CommandSender sender) {
+        rollback(sender, false);
+    }
+
+    /**
+     * Rollback with integrity checking. A recorded sha256 that does NOT match the backup
+     * means the file is damaged or was replaced, and restoring it would finish a bad
+     * situation instead of fixing it - so that is refused. Backups with no recorded
+     * checksum (anything made before this existed) are still usable, but the operator is
+     * told plainly that their integrity is unknown.
+     */
+    public static void rollback(CommandSender sender, boolean listOnly) {
         try {
             Path target = detectLauncherJar();
-            Path parent = target.getParent();
-            Path newest = null;
-            long newestTime = -1L;
-            try (DirectoryStream<Path> stream = Files.newDirectoryStream(parent, target.getFileName() + ".bak-*")) {
-                for (Path candidate : stream) {
-                    long modified = Files.getLastModifiedTime(candidate).toMillis();
-                    if (modified > newestTime) {
-                        newestTime = modified;
-                        newest = candidate;
-                    }
+            Path parent = target.getParent() == null ? Path.of(".") : target.getParent();
+            String jarName = target.getFileName().toString();
+            List<BackupEntry> backups = listBackups(parent, jarName);
+
+            if (listOnly) {
+                if (backups.isEmpty()) {
+                    sender.sendMessage(Component.text("No jar backups found next to " + jarName
+                            + " (update.keep-jar-backup may be false).", NamedTextColor.YELLOW));
+                    return;
                 }
+                sender.sendMessage(Component.text("=== Jar backups (newest first) ===", NamedTextColor.AQUA));
+                for (BackupEntry entry : backups) {
+                    NamedTextColor color = switch (entry.state()) {
+                        case "VERIFIED" -> NamedTextColor.GREEN;
+                        case "MISMATCH" -> NamedTextColor.RED;
+                        default -> NamedTextColor.YELLOW;
+                    };
+                    sender.sendMessage(Component.text("  " + entry.jar().getFileName() + "  "
+                            + human(entry.bytes()) + "  " + entry.state(), color));
+                }
+                sender.sendMessage(Component.text("Type /vo rollback to restore the newest one.", NamedTextColor.GRAY));
+                return;
             }
-            if (newest == null) {
-                sender.sendMessage(Component.text("No jar backup found next to " + target.getFileName()
+
+            if (backups.isEmpty()) {
+                sender.sendMessage(Component.text("No jar backup found next to " + jarName
                         + " (update.keep-jar-backup may be false).", NamedTextColor.RED));
                 return;
             }
+
+            BackupEntry newest = backups.get(0);
+            if ("MISMATCH".equals(newest.state())) {
+                sender.sendMessage(Component.text("[VoltPur] REFUSING to roll back: " + newest.jar().getFileName()
+                        + " does not match its recorded sha256 - damaged or replaced.", NamedTextColor.RED));
+                sender.sendMessage(Component.text("Run /vo rollback list for the other backups. Nothing was changed.",
+                        NamedTextColor.RED));
+                return;
+            }
+            if ("NO CHECKSUM".equals(newest.state())) {
+                sender.sendMessage(Component.text("[VoltPur] Note: " + newest.jar().getFileName()
+                        + " has no recorded sha256 (it predates checksum tracking) - restoring it unverified.",
+                        NamedTextColor.YELLOW));
+            }
+
             Path safetyCopy = Path.of(target + ".before-rollback-" + stamp());
             Files.copy(target, safetyCopy, StandardCopyOption.REPLACE_EXISTING);
-            Files.copy(newest, target, StandardCopyOption.REPLACE_EXISTING);
-            sender.sendMessage(Component.text("[OK] Rolled back to " + newest.getFileName(), NamedTextColor.GREEN));
+            Files.copy(newest.jar(), target, StandardCopyOption.REPLACE_EXISTING);
+            sender.sendMessage(Component.text("[OK] Rolled back to " + newest.jar().getFileName()
+                    + " (" + newest.state() + ")", NamedTextColor.GREEN));
             sender.sendMessage(Component.text("The replaced jar was kept as " + safetyCopy.getFileName()
                     + ". Restart to run the restored build.", NamedTextColor.GRAY));
         } catch (Exception e) {
@@ -773,6 +822,118 @@ public final class VoltPurUpdater {
         }
         return "a world backup runs before the swap";
     }
+
+    /**
+     * One rollback candidate on disk, with an honest integrity state:
+     *   VERIFIED    - its sha256 is recorded in the manifest and matches the file
+     *   NO CHECKSUM - it predates checksum tracking (or the manifest does not list it)
+     *   MISMATCH    - the manifest has a sha256 for it and it does NOT match: corrupt or replaced
+     */
+    record BackupEntry(Path jar, long bytes, long modified, String state) {}
+
+    /**
+     * Checksums live in ONE manifest per jar - "<jar>.backups.sha256" - and NOT in a
+     * ".bak-<stamp>.sha256" file next to each backup. That choice is not cosmetic: older
+     * builds find rollback candidates with the glob "<jar>.bak-*", so a per-backup checksum
+     * file would be picked up as if it were a server jar by any build released before this
+     * one. A live test with the shipped Build 69 proved exactly that - it "restored" a
+     * .sha256 file as server.jar - so the manifest name stays outside that glob.
+     */
+    private static Path manifestFor(Path dir, String jarName) {
+        return dir.resolve(jarName + ".backups.sha256");
+    }
+
+    private static Map<String, String> readManifest(Path dir, String jarName) {
+        Map<String, String> out = new HashMap<>();
+        Path manifest = manifestFor(dir, jarName);
+        if (!Files.isRegularFile(manifest)) return out;
+        try {
+            for (String line : Files.readAllLines(manifest, StandardCharsets.UTF_8)) {
+                String[] parts = line.trim().split("\\s+", 2);
+                if (parts.length == 2 && !parts[0].isEmpty()) out.put(parts[1].trim(), parts[0]);
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Backup manifest unreadable: " + e.getMessage());
+        }
+        return out;
+    }
+
+    private static void writeManifest(Path dir, String jarName, Map<String, String> entries) {
+        try {
+            List<String> lines = new ArrayList<>();
+            entries.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
+                    .forEach(entry -> lines.add(entry.getValue() + "  " + entry.getKey()));
+            Files.write(manifestFor(dir, jarName), lines, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        } catch (Exception e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not write the backup manifest: " + e.getMessage());
+        }
+    }
+
+    /** Records the checksum of a fresh backup so a later rollback can prove it is intact. */
+    static void recordBackupChecksum(Path dir, String jarName, Path backup) {
+        try {
+            Map<String, String> entries = readManifest(dir, jarName);
+            entries.put(backup.getFileName().toString(), sha256(backup));
+            writeManifest(dir, jarName, entries);
+        } catch (Exception e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not record the backup checksum: " + e.getMessage());
+        }
+    }
+
+    /** Lists <jar>.bak-* backups newest first, each with its integrity state. Never throws. */
+    static List<BackupEntry> listBackups(Path dir, String jarName) {
+        Map<String, String> checksums = readManifest(dir, jarName);
+        List<BackupEntry> out = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dir, jarName + ".bak-*")) {
+            for (Path candidate : stream) {
+                if (!Files.isRegularFile(candidate)) continue;
+                String name = candidate.getFileName().toString();
+                // Never treat a checksum file as a jar, whatever it happens to be called.
+                if (name.endsWith(".sha256")) continue;
+                String state = "NO CHECKSUM";
+                String expected = checksums.get(name);
+                if (expected != null) {
+                    try {
+                        state = expected.equalsIgnoreCase(sha256(candidate)) ? "VERIFIED" : "MISMATCH";
+                    } catch (Exception unreadable) {
+                        state = "NO CHECKSUM";
+                    }
+                }
+                out.add(new BackupEntry(candidate, Files.size(candidate),
+                        Files.getLastModifiedTime(candidate).toMillis(), state));
+            }
+        } catch (Exception e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not list jar backups: " + e.getMessage());
+        }
+        out.sort((a, b) -> Long.compare(b.modified(), a.modified()));
+        return out;
+    }
+
+    /**
+     * Deletes backups beyond the newest {@code keep}, oldest first (and their manifest entries).
+     * {@code keep <= 0} is the default and means "never delete anything": rotation is opt-in,
+     * because a backup the operator did not expect to lose is worse than using disk.
+     */
+    static int pruneBackups(Path dir, String jarName, int keep) {
+        if (keep <= 0) return 0;
+        List<BackupEntry> all = listBackups(dir, jarName);
+        Map<String, String> checksums = readManifest(dir, jarName);
+        int removed = 0;
+        for (int i = keep; i < all.size(); i++) {
+            try {
+                Files.deleteIfExists(all.get(i).jar());
+                checksums.remove(all.get(i).jar().getFileName().toString());
+                removed++;
+            } catch (Exception e) {
+                Bukkit.getLogger().fine("[VoltPur-Updater] Could not remove an old backup: " + e.getMessage());
+            }
+        }
+        if (removed > 0) writeManifest(dir, jarName, checksums);
+        return removed;
+    }
+
 
     static String human(long bytes) {
         if (bytes < 0) return "unknown";

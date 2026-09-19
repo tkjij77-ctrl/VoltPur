@@ -133,6 +133,46 @@ public final class VerifyCommand {
         check("old build numbers outside the list are rejected", VoltPurUpdater.resolveBuild(builds, "12") == null, "accepted 12");
         check("empty list is handled", VoltPurUpdater.resolveBuild(List.of(), "1") == null, "no null return");
 
+        System.out.println("[updater] rollback: backups are listed with an honest integrity state");
+        Path rbDir = work.resolve("rb"); Files.createDirectories(rbDir);
+        Path rbJar = rbDir.resolve("server.jar");
+        Files.writeString(rbJar, "current");
+        // three backups on disk: one with a correct sidecar, one whose sidecar lies, one legacy with none
+        Path b1 = rbDir.resolve("server.jar.bak-20260901-000000");
+        Path b2 = rbDir.resolve("server.jar.bak-20260902-000000");
+        Path b3 = rbDir.resolve("server.jar.bak-20260903-000000");
+        Files.writeString(b1, "backup-one"); Files.writeString(b2, "backup-two"); Files.writeString(b3, "backup-three");
+        // b2 is the honest one (oldest -> newest order via mtimes below), b3 is tampered, b1 is legacy
+        Files.setLastModifiedTime(b1, java.nio.file.attribute.FileTime.fromMillis(1_700_000_000_000L));
+        Files.setLastModifiedTime(b2, java.nio.file.attribute.FileTime.fromMillis(1_700_000_100_000L));
+        Files.setLastModifiedTime(b3, java.nio.file.attribute.FileTime.fromMillis(1_700_000_200_000L));
+        VoltPurUpdater.recordBackupChecksum(rbDir, "server.jar", b2);
+        // a lying manifest entry for b3
+        Path manifest = rbDir.resolve("server.jar.backups.sha256");
+        Files.writeString(manifest, Files.readString(manifest)
+                + "0000000000000000000000000000000000000000000000000000000000000000  server.jar.bak-20260903-000000\n");
+        List<VoltPurUpdater.BackupEntry> listed = VoltPurUpdater.listBackups(rbDir, "server.jar");
+        check("listBackups sees exactly the 3 backups (sidecars are not backups)", listed.size() == 3, "saw " + listed.size());
+        check("newest backup comes first", listed.get(0).jar().equals(b3), listed.get(0).jar().getFileName().toString());
+        check("a matching manifest entry reads VERIFIED", listed.get(1).state().equals("VERIFIED"), listed.get(1).state());
+        check("a lying manifest entry reads MISMATCH", listed.get(0).state().equals("MISMATCH"), listed.get(0).state());
+        check("a backup absent from the manifest is honest about it", listed.get(2).state().equals("NO CHECKSUM"), listed.get(2).state());
+        check("sizes are reported", listed.get(1).bytes() == "backup-two".length(), "wrong size");
+
+        System.out.println("[updater] rollback: rotation is opt-in and removes only the oldest");
+        check("keep<=0 keeps everything (the default)", VoltPurUpdater.pruneBackups(rbDir, "server.jar", 0) == 0
+                && VoltPurUpdater.listBackups(rbDir, "server.jar").size() == 3, "deleted something by default");
+        int removed = VoltPurUpdater.pruneBackups(rbDir, "server.jar", 2);
+        check("keep=2 removed exactly one backup", removed == 1, "removed " + removed);
+        check("the oldest went, not the newest", !Files.exists(b1) && Files.exists(b3), "wrong file removed");
+        check("the manifest drops the removed entry",
+                !Files.readString(rbDir.resolve("server.jar.backups.sha256")).contains("20260901"),
+                "manifest kept a removed backup");
+        check("the manifest is not itself seen as a backup",
+                VoltPurUpdater.listBackups(rbDir, "server.jar").stream()
+                        .noneMatch(e -> e.jar().getFileName().toString().endsWith(".sha256")),
+                "a checksum file was listed as a backup");
+
         System.out.println("[updater] the world-zip line never promises a backup the module cannot deliver");
         String both = VoltPurUpdater.worldBackupLine(true, true);
         String moduleOff = VoltPurUpdater.worldBackupLine(true, false);

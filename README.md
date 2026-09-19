@@ -68,7 +68,7 @@ java -Xms2G -Xmx2G -XX:+UseG1GC -XX:+ParallelRefProcEnabled \
 
 ## 🔬 التحقق قبل أي دمج
 ```bash
-tools/verify/run-verify.sh     # ترجمة فعلية + 97 فحصًا سلوكيًا (JDK 21+)
+tools/verify/run-verify.sh     # ترجمة فعلية + 108 فحصًا سلوكيًا (JDK 21+)
 ```
 يفشل السكربت إذا كسرت أي تغيير الافتراضات الآمنة أو فحص الروابط أو تحقق الأرشيف. تفاصيل ما يُثبته وما لا يُثبته: `tools/verify/README.md`.
 

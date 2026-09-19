@@ -56,6 +56,7 @@ public class VoltPurConfig {
     public static boolean updateRequireChecksum = true; // refuse unverifiable downloads
     public static boolean updateAutoBackup = true;      // real backup before an update (was dead before)
     public static boolean updateKeepJarBackup = true;   // server.jar.bak-<timestamp> for rollback
+    public static int updateKeepBackups = 0;            // 0 = keep every backup; >0 = rotate to the newest N
     public static boolean updateCleanReinstall = false; // destructive mode, OFF (only generated dirs)
 
     // ---- PAdmin WebUI (loopback + Basic Auth only) ----
@@ -119,6 +120,7 @@ public class VoltPurConfig {
         config.addDefault("update.require-checksum", updateRequireChecksum);
         config.addDefault("update.auto-backup", updateAutoBackup);
         config.addDefault("update.keep-jar-backup", updateKeepJarBackup);
+        config.addDefault("update.keep-backups", updateKeepBackups);
         config.addDefault("update.clean-reinstall", updateCleanReinstall);
 
         config.addDefault("modules.padmin.enabled", padminEnabled);
@@ -171,6 +173,7 @@ public class VoltPurConfig {
         updateRequireChecksum = config.getBoolean("update.require-checksum", updateRequireChecksum);
         updateAutoBackup = config.getBoolean("update.auto-backup", updateAutoBackup);
         updateKeepJarBackup = config.getBoolean("update.keep-jar-backup", updateKeepJarBackup);
+        updateKeepBackups = config.getInt("update.keep-backups", updateKeepBackups);
         updateCleanReinstall = config.getBoolean("update.clean-reinstall", updateCleanReinstall);
 
         padminEnabled = config.getBoolean("modules.padmin.enabled", padminEnabled);

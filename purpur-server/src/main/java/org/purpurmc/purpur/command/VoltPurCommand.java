@@ -169,8 +169,11 @@ public class VoltPurCommand extends Command {
                     sender.sendMessage(Component.text("No permission (voltpur.admin.update or OP).", NamedTextColor.RED));
                     return true;
                 }
-                sender.sendMessage(Component.text("[VoltPur] Restoring the previous server jar...", NamedTextColor.YELLOW));
-                runAsync("rollback", () -> VoltPurUpdater.rollback(sender));
+                boolean listOnly = args.length > 0 && "list".equalsIgnoreCase(args[0]);
+                if (!listOnly) {
+                    sender.sendMessage(Component.text("[VoltPur] Restoring the previous server jar...", NamedTextColor.YELLOW));
+                }
+                runAsync("rollback", () -> VoltPurUpdater.rollback(sender, listOnly));
                 return true;
             }
             default -> {
