@@ -169,7 +169,8 @@ public class VoltPurCommand extends Command {
                     sender.sendMessage(Component.text("No permission (voltpur.admin.update or OP).", NamedTextColor.RED));
                     return true;
                 }
-                boolean listOnly = args.length > 0 && "list".equalsIgnoreCase(args[0]);
+                // Convention in this command: args[0] is the sub-command, so the parameter is args[1].
+                boolean listOnly = args.length > 1 && "list".equalsIgnoreCase(args[1]);
                 if (!listOnly) {
                     sender.sendMessage(Component.text("[VoltPur] Restoring the previous server jar...", NamedTextColor.YELLOW));
                 }
