@@ -1,5 +1,8 @@
 package org.purpurmc.purpur.command;
 
+import org.purpurmc.purpur.VoltPurConfig;
+import org.purpurmc.purpur.VoltPurGuard;
+
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -25,6 +28,84 @@ public final class VerifyCommand {
 
     public static void main(String[] args) throws Exception {
         Path work = Files.createTempDirectory("voltpur-cmd-");
+
+        System.out.println("[guard] circuit breaker: a module failing in a loop is taken out of its schedule");
+        VoltPurGuard.configure(true, 8);
+        check("the breaker is on by default in this build", VoltPurGuard.breakerEnabled(), "breaker off");
+        check("the threshold is the configured one", VoltPurGuard.breakerThreshold() == 8, "wrong threshold");
+        String loop = "VerifyLoopModule";
+        for (int i = 0; i < 7; i++) VoltPurGuard.run(loop, () -> { throw new IllegalStateException("boom"); });
+        check("7 failures do NOT trip an 8-failure breaker", !VoltPurGuard.stat(loop).tripped(), "tripped too early");
+        check("consecutive failures are counted", VoltPurGuard.stat(loop).consecutiveFailures() == 7,
+                "count=" + VoltPurGuard.stat(loop).consecutiveFailures());
+        VoltPurGuard.run(loop, () -> { throw new IllegalStateException("boom"); });   // the 8th
+        check("the 8th consecutive failure opens the breaker", VoltPurGuard.stat(loop).tripped(), "still running");
+        check("the trip reason names the last error", VoltPurGuard.stat(loop).tripReason().contains("boom"),
+                VoltPurGuard.stat(loop).tripReason());
+        boolean[] ran = {false};
+        VoltPurGuard.run(loop, () -> { ran[0] = true; });
+        check("a tripped module is not executed any more", !ran[0], "it still ran");
+        check("short-circuited calls are counted", VoltPurGuard.stat(loop).shortCircuited() == 1, "not counted");
+        check("the health line reports the breaker state",
+                VoltPurGuard.healthLine(loop).contains("DISABLED-AFTER-FAILURES"), VoltPurGuard.healthLine(loop));
+
+        System.out.println("[guard] circuit breaker: recovery, exemption, and what /voltpur reload does");
+        String flaky = "VerifyFlakyModule";
+        for (int i = 0; i < 5; i++) VoltPurGuard.run(flaky, () -> { throw new IllegalStateException("x"); });
+        VoltPurGuard.run(flaky, () -> { });                                  // one success
+        check("a success resets the consecutive counter", VoltPurGuard.stat(flaky).consecutiveFailures() == 0,
+                "count=" + VoltPurGuard.stat(flaky).consecutiveFailures());
+        check("a recovering module is left alone", !VoltPurGuard.stat(flaky).tripped(), "tripped anyway");
+        check("watchdog modules are exempt", VoltPurGuard.isCritical("TPSMonitor")
+                && VoltPurGuard.isCritical("WorldStability") && VoltPurGuard.isCritical("ModuleGuard"), "not exempt");
+        String watch = "TPSMonitor";
+        for (int i = 0; i < 12; i++) VoltPurGuard.run(watch, () -> { throw new IllegalStateException("watch"); });
+        check("a critical module is never tripped, even past the threshold",
+                !VoltPurGuard.stat(watch).tripped(), "the watchdog was disabled");
+        int closed = VoltPurGuard.resetBreakers();      // exactly what /voltpur reload calls
+        check("resetBreakers() closes the open breakers", closed >= 1, "closed=" + closed);
+        boolean ranAgain = false;
+        try { VoltPurGuard.run(loop, () -> { throw new IllegalStateException("boom"); }); ranAgain = true; } catch (Throwable ignored) { }
+        check("after reload the module runs again", ranAgain, "still short-circuited");
+        check("lifetime failure counts are kept (only the streak resets)",
+                VoltPurGuard.stat(loop).failures() >= 9, "lost history");
+
+        System.out.println("[updater] RECOVERY.txt is written where nothing else works");
+        Path recDir = work.resolve("recovery"); Files.createDirectories(recDir);
+        Path recJar = recDir.resolve("server.jar");
+        Files.writeString(recJar, "x");
+        Path recBackup = recDir.resolve("server.jar.bak-20260919-120711");
+        Path written = VoltPurUpdater.writeRecoveryFile(recJar, "71", "abc1234",
+                "9e7cda9d237f76d19657414ae126a11b920854d6078a8673cad3d0c8822a52e3", recBackup);
+        check("RECOVERY.txt lands next to the jar", written != null && Files.exists(written), "not written");
+        String recovery = Files.readString(recDir.resolve("RECOVERY.txt"));
+        check("it names the build and commit", recovery.contains("#71") && recovery.contains("abc1234"), recovery);
+        check("it names the backup file", recovery.contains("server.jar.bak-20260919-120711"), "backup missing");
+        check("it contains the exact restore command",
+                recovery.contains("cp server.jar.bak-20260919-120711 server.jar"), "no usable command");
+        check("it records the installed sha256",
+                recovery.contains("9e7cda9d237f76d1"), "sha missing");
+        check("it says nothing else was changed", recovery.contains("nothing else was changed".replace("nothing", "Nothing"))
+                || recovery.contains("Nothing else was changed"), "no reassurance");
+        Path writtenNoBackup = VoltPurUpdater.writeRecoveryFile(recJar, "71", "abc1234", "deadbeef", null);
+        String recoveryNoBackup = Files.readString(recDir.resolve("RECOVERY.txt"));
+        check("without a backup it says so instead of inventing one",
+                writtenNoBackup != null && recoveryNoBackup.contains("No previous jar was kept"), recoveryNoBackup);
+
+        System.out.println("[config] a broken voltpur.yml is set aside, never deleted");
+        Path cfgDir = work.resolve("cfg"); Files.createDirectories(cfgDir);
+        java.io.File broken = cfgDir.resolve("voltpur.yml").toFile();
+        Files.writeString(broken.toPath(), "modules: [this is not valid yaml\n  bad indent:");
+        Path quarantined = VoltPurConfig.quarantineBrokenConfig(broken);
+        check("the broken file was moved aside", quarantined != null && Files.exists(quarantined), "not moved");
+        check("the original name is free again", !broken.exists(), "still in the way");
+        check("the quarantined file keeps its contents",
+                quarantined != null && Files.readString(quarantined).contains("not valid yaml"), "content lost");
+        check("the quarantined name says what it is",
+                quarantined != null && quarantined.getFileName().toString().startsWith("voltpur.yml.broken-"),
+                String.valueOf(quarantined));
+        check("a missing file is handled without throwing", VoltPurConfig.quarantineBrokenConfig(
+                cfgDir.resolve("does-not-exist.yml").toFile()) == null, "invented a file");
 
         System.out.println("[updater] URL validation (SSRF guards)");
         List<String> rejected = List.of(

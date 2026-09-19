@@ -440,6 +440,7 @@ public final class VoltPurUpdater {
 
             if (plan.jarBackup()) {
                 Path backup = Path.of(plan.installTarget() + ".bak-" + stamp());
+                lastJarBackup = backup;
                 Files.copy(plan.installTarget(), backup, StandardCopyOption.REPLACE_EXISTING);
                 recordBackupChecksum(plan.installTarget().getParent(),
                         plan.installTarget().getFileName().toString(), backup);
@@ -476,9 +477,14 @@ public final class VoltPurUpdater {
             forgetPlanFile();
             pending = null;
 
+            Path backupPath = lastJarBackup;
+            writeRecoveryFile(plan.installTarget(), plan.build().runNumber(), plan.build().shortSha(),
+                    plan.localSha(), backupPath);
             sender.sendMessage(Component.text("[OK] Installed build #" + plan.build().runNumber()
                     + " (" + plan.build().shortSha() + ") into " + plan.installTarget().getFileName()
                     + "  sha256 " + plan.localSha().substring(0, 12) + "...", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("Recovery steps written to RECOVERY.txt next to the jar "
+                    + "(readable even if this build never starts).", NamedTextColor.GRAY));
             sender.sendMessage(Component.text("Restart the server to run it. The startup banner cross-checks this stamp.", NamedTextColor.YELLOW));
         } catch (Exception e) {
             pending = null;
@@ -566,6 +572,7 @@ public final class VoltPurUpdater {
             Path safetyCopy = Path.of(target + ".before-rollback-" + stamp());
             Files.copy(target, safetyCopy, StandardCopyOption.REPLACE_EXISTING);
             Files.copy(newest.jar(), target, StandardCopyOption.REPLACE_EXISTING);
+            writeRecoveryFile(target, "rolled-back", "manual", newest.state(), newest.jar());
             sender.sendMessage(Component.text("[OK] Rolled back to " + newest.jar().getFileName()
                     + " (" + newest.state() + ")", NamedTextColor.GREEN));
             sender.sendMessage(Component.text("The replaced jar was kept as " + safetyCopy.getFileName()
@@ -830,6 +837,51 @@ public final class VoltPurUpdater {
      *   MISMATCH    - the manifest has a sha256 for it and it does NOT match: corrupt or replaced
      */
     record BackupEntry(Path jar, long bytes, long modified, String state) {}
+
+    /** Where the jar that is currently running was saved before it was replaced (if it was). */
+    private static volatile Path lastJarBackup = null;
+
+    /**
+     * Writes human-readable recovery steps NEXT TO THE JAR, on purpose: if the new build
+     * does not start, VoltPur itself does not run either, so the instructions must be
+     * readable with nothing but a file browser (or `cat`). This is the one document that
+     * still works in the worst case.
+     */
+    static Path writeRecoveryFile(Path jar, String buildNumber, String shortSha, String sha256, Path backup) {
+        try {
+            Path file = jar.resolveSibling("RECOVERY.txt");
+            List<String> lines = new ArrayList<>();
+            lines.add("VoltPur recovery information");
+            lines.add("============================");
+            lines.add("");
+            lines.add("This server was updated to build #" + buildNumber + " (" + shortSha + ")");
+            lines.add("on " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + ".");
+            lines.add("Installed jar : " + jar.getFileName() + "   sha256 " + sha256);
+            lines.add("");
+            if (backup != null) {
+                lines.add("The previous jar was kept as: " + backup.getFileName());
+                lines.add("");
+                lines.add("IF THE SERVER DOES NOT START, restore it with:");
+                lines.add("");
+                lines.add("    cp " + backup.getFileName() + " " + jar.getFileName());
+                lines.add("");
+                lines.add("then start the server again. Nothing else was changed - plugins,");
+                lines.add("configs, worlds and backups were all kept.");
+            } else {
+                lines.add("No previous jar was kept (update.keep-jar-backup=false).");
+                lines.add("List any other backups with:  /vo rollback list");
+            }
+            lines.add("");
+            lines.add("In game (when VoltPur runs):  /vo rollback list   then   /vo rollback");
+            lines.add("Everything else VoltPur did is listed in docs/CHANGELOG.md of the release.");
+            Files.write(file, lines, StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            return file;
+        } catch (Exception e) {
+            Bukkit.getLogger().fine("[VoltPur-Updater] Could not write RECOVERY.txt: " + e.getMessage());
+            return null;
+        }
+    }
 
     /**
      * Checksums live in ONE manifest per jar - "<jar>.backups.sha256" - and NOT in a

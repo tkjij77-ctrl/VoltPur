@@ -25,6 +25,25 @@ import java.util.logging.Level;
  * Keys kept for backwards compatibility are marked "legacy" and only logged.
  */
 public class VoltPurConfig {
+
+    /**
+     * Moves a config file that failed to parse next to itself, stamped, and returns the new
+     * path (null when the move was not possible). It never deletes anything: an operator's
+     * comments and values are worth more than a clean directory. Without this, one broken
+     * voltpur.yml fails on every single start and nobody is told which file is at fault.
+     */
+    public static java.nio.file.Path quarantineBrokenConfig(File broken) {
+        try {
+            if (broken == null || !broken.isFile()) return null;
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date());
+            java.nio.file.Path target = broken.toPath().resolveSibling(broken.getName() + ".broken-" + stamp);
+            java.nio.file.Files.move(broken.toPath(), target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            return target;
+        } catch (Exception moveFailed) {
+            return null;
+        }
+    }
+
     private static File CONFIG_FILE;
     public static YamlConfiguration config;
 
@@ -57,6 +76,8 @@ public class VoltPurConfig {
     public static boolean updateAutoBackup = true;      // real backup before an update (was dead before)
     public static boolean updateKeepJarBackup = true;   // server.jar.bak-<timestamp> for rollback
     public static int updateKeepBackups = 0;            // 0 = keep every backup; >0 = rotate to the newest N
+    public static boolean voltPurGuardBreakerOn = true; // a module failing in a loop is taken out of its schedule
+    public static int voltPurGuardBreakerThreshold = 8; // consecutive failures before that happens
     public static boolean updateCleanReinstall = false; // destructive mode, OFF (only generated dirs)
 
     // ---- PAdmin WebUI (loopback + Basic Auth only) ----
@@ -91,6 +112,17 @@ public class VoltPurConfig {
             if (CONFIG_FILE.exists()) config.load(CONFIG_FILE);
         } catch (Exception ex) {
             Bukkit.getLogger().log(Level.WARNING, "[VoltPur] Could not load voltpur.yml", ex);
+            // A broken file that stays in place fails on EVERY start, and the operator is
+            // never told which one it is. Move it aside (never delete it), say where it
+            // went, and continue on defaults: the server keeps running and nothing is lost.
+            java.nio.file.Path quarantined = quarantineBrokenConfig(CONFIG_FILE);
+            if (quarantined != null) {
+                Bukkit.getLogger().warning("[VoltPur] The broken file was kept as " + quarantined.getFileName()
+                        + " - running on defaults now, and a fresh voltpur.yml will be written. "
+                        + "Your settings are still in that file; copy back what you need.");
+            } else {
+                Bukkit.getLogger().warning("[VoltPur] Could not set the broken voltpur.yml aside - running on defaults.");
+            }
         }
 
         warnAboutLegacyKeys();
@@ -122,6 +154,9 @@ public class VoltPurConfig {
         config.addDefault("update.keep-jar-backup", updateKeepJarBackup);
         config.addDefault("update.keep-backups", updateKeepBackups);
         config.addDefault("update.clean-reinstall", updateCleanReinstall);
+
+        config.addDefault("guard.circuit-breaker.enabled", voltPurGuardBreakerOn);
+        config.addDefault("guard.circuit-breaker.threshold", voltPurGuardBreakerThreshold);
 
         config.addDefault("modules.padmin.enabled", padminEnabled);
         config.addDefault("modules.padmin.user", padminUser);
@@ -174,6 +209,9 @@ public class VoltPurConfig {
         updateAutoBackup = config.getBoolean("update.auto-backup", updateAutoBackup);
         updateKeepJarBackup = config.getBoolean("update.keep-jar-backup", updateKeepJarBackup);
         updateKeepBackups = config.getInt("update.keep-backups", updateKeepBackups);
+        voltPurGuardBreakerOn = config.getBoolean("guard.circuit-breaker.enabled", voltPurGuardBreakerOn);
+        voltPurGuardBreakerThreshold = config.getInt("guard.circuit-breaker.threshold", voltPurGuardBreakerThreshold);
+        VoltPurGuard.configure(voltPurGuardBreakerOn, voltPurGuardBreakerThreshold);
         updateCleanReinstall = config.getBoolean("update.clean-reinstall", updateCleanReinstall);
 
         padminEnabled = config.getBoolean("modules.padmin.enabled", padminEnabled);

@@ -155,7 +155,10 @@ public class VoltPurCommand extends Command {
                     return true;
                 }
                 VoltPurConfig.init();
-                sender.sendMessage(Component.text("voltpur.yml reloaded. Modules that read config at startup need a restart.", NamedTextColor.GREEN));
+                int closed = VoltPurGuard.resetBreakers();
+                sender.sendMessage(Component.text("voltpur.yml reloaded." + (closed > 0
+                        ? " Circuit breakers closed: " + closed + " module(s) will run again."
+                        : "") + " Modules that read config at startup need a restart.", NamedTextColor.GREEN));
                 return true;
             }
             case "in", "install" -> {

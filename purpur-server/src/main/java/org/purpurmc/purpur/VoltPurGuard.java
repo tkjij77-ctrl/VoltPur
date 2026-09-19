@@ -29,6 +29,24 @@ import java.util.logging.Level;
  *   - exposes everything through /voltpur modules, the PAdmin snapshot and
  *     logs/voltpur-modules.json.
  *
+ * CIRCUIT BREAKER (why counting was not enough)
+ * ---------------------------------------------
+ * Counting failures made a dead module visible, but it stayed dead IN THE LOOP:
+ * a module that throws on every tick kept being called forever, costing CPU and
+ * writing a warning every 60s until the operator noticed. VoltPur is supposed to
+ * keep the server running, so a module that fails repeatedly is now taken out of
+ * its schedule by itself, loudly and reversibly:
+ *
+ *   - N consecutive failures (default 8) open the breaker for that module,
+ *   - further calls return immediately and are counted as "short-circuited",
+ *   - one clear log line explains what happened and how to re-enable,
+ *   - any success resets the counter, so a flaky-but-recovering module is left alone,
+ *   - CRITICAL modules are never taken out of the loop (see CRITICAL below),
+ *   - /voltpur reload closes every breaker.
+ *
+ * A module that cannot run is a smaller problem than a module that runs and
+ * fails forever - and both are smaller than a silent one.
+ *
  * Rule for contributors: never wrap VoltPur work in an empty catch. Use
  * VoltPurGuard.run("ModuleName", ...) instead.
  */
@@ -39,7 +57,11 @@ public final class VoltPurGuard {
         private final AtomicLong runs = new AtomicLong();
         private final AtomicLong failures = new AtomicLong();
         private final AtomicLong skipped = new AtomicLong();
+        private final AtomicLong consecutive = new AtomicLong();
+        private final AtomicLong shortCircuited = new AtomicLong();
         private volatile long lastRunAt = 0L;
+        private volatile long trippedAt = 0L;
+        private volatile String tripReason = "";
         private volatile long lastErrorAt = 0L;
         private volatile long lastLogAt = 0L;
         private volatile String lastError = "";
@@ -51,6 +73,14 @@ public final class VoltPurGuard {
         public long lastErrorAt() { return lastErrorAt; }
         public String lastError() { return lastError; }
 
+        public long consecutiveFailures() { return consecutive.get(); }
+        public long shortCircuited() { return shortCircuited.get(); }
+        public long trippedAt() { return trippedAt; }
+        public String tripReason() { return tripReason; }
+
+        /** True when the breaker opened: the module is no longer executed on its schedule. */
+        public boolean tripped() { return trippedAt > 0L; }
+
         /** True when this module threw at least once and did not recover after it. */
         public boolean failingNow() {
             return failures.get() > 0 && lastErrorAt > 0 && lastErrorAt >= lastRunAt;
@@ -60,7 +90,45 @@ public final class VoltPurGuard {
     private static final Map<String, Stat> STATS = new ConcurrentHashMap<>();
     private static final long ERROR_LOG_INTERVAL_MS = 60_000L;
 
+    /**
+     * Modules whose job is to keep WATCHING. Taking these out of the loop would hide
+     * the very problem they report, so they are exempt: they keep running (and keep
+     * warning, rate-limited) no matter how often they fail. Stated here explicitly
+     * instead of being implied by whoever reads the code.
+     */
+    private static final java.util.Set<String> CRITICAL =
+            java.util.Set.of("ModuleGuard", "TPSMonitor", "WorldStability");
+
+    private static volatile boolean breakerEnabled = true;
+    private static volatile int breakerThreshold = 8;
+
     private VoltPurGuard() {}
+
+    /** Configured from voltpur.yml (guard.circuit-breaker.*); safe to call any time. */
+    public static void configure(boolean enabled, int threshold) {
+        breakerEnabled = enabled;
+        breakerThreshold = Math.max(1, threshold);
+    }
+
+    public static boolean breakerEnabled() { return breakerEnabled; }
+    public static int breakerThreshold() { return breakerThreshold; }
+
+    /** True when the module is exempt from the breaker (it must keep watching). */
+    public static boolean isCritical(String module) {
+        return CRITICAL.contains(module);
+    }
+
+    /** Closes every breaker and clears consecutive counters. Lifetime counters are kept. */
+    public static int resetBreakers() {
+        int closed = 0;
+        for (Stat s : STATS.values()) {
+            if (s.tripped()) closed++;
+            s.consecutive.set(0L);
+            s.trippedAt = 0L;
+            s.tripReason = "";
+        }
+        return closed;
+    }
 
     public static Stat stat(String module) {
         return STATS.computeIfAbsent(module, key -> new Stat());
@@ -73,10 +141,16 @@ public final class VoltPurGuard {
     /** Runs a task, records success/failure, and returns `fallback` when it throws. */
     public static <T> T run(String module, Supplier<T> task, T fallback) {
         Stat s = stat(module);
+        if (s.tripped()) {
+            // The breaker is open: do not call into a module known to be failing.
+            s.shortCircuited.incrementAndGet();
+            return fallback;
+        }
         try {
             T value = task.get();
             s.runs.incrementAndGet();   // successful executions only; failures are counted below
             s.lastRunAt = System.currentTimeMillis();
+            s.consecutive.set(0L);      // it recovered - leave it alone
             return value;
         } catch (Throwable t) {
             record(module, t);
@@ -107,21 +181,42 @@ public final class VoltPurGuard {
     private static void record(String module, Throwable t) {
         Stat s = stat(module);
         s.failures.incrementAndGet();
+        long consecutive = s.consecutive.incrementAndGet();
         s.lastErrorAt = System.currentTimeMillis();
         s.lastError = t.getClass().getSimpleName() + (t.getMessage() == null ? "" : ": " + t.getMessage());
 
         long now = System.currentTimeMillis();
-        boolean first = s.failures.get() == 1L;
+        boolean first = consecutive == 1L;
         boolean stale = (now - s.lastLogAt) > ERROR_LOG_INTERVAL_MS;
         if (first || stale) {
             s.lastLogAt = now;
             String note = first ? "" : " (repeat; suppressed " + (s.failures.get() - 1) + " earlier)";
-            try {
-                Bukkit.getLogger().log(Level.WARNING,
-                        "[VoltPur-Guard] " + module + " failed" + note + ": " + s.lastError, t);
-            } catch (Throwable ignored) {
-                // Logger unavailable (very early startup) - counters are still updated.
+            log(Level.WARNING, "[VoltPur-Guard] " + module + " failed" + note + ": " + s.lastError, t);
+        }
+
+        if (!first && breakerEnabled && consecutive >= breakerThreshold && !s.tripped()) {
+            if (isCritical(module)) {
+                log(Level.SEVERE, "[VoltPur-Guard] " + module + " failed " + consecutive
+                        + " times in a row. This module only WATCHES the server, so it is kept running "
+                        + "(a watchdog that stops watching is worse than a noisy one). Last error: " + s.lastError, null);
+            } else {
+                s.trippedAt = now;
+                s.tripReason = s.lastError;
+                log(Level.SEVERE, "[VoltPur-Guard] Module '" + module + "' DISABLED after " + consecutive
+                        + " consecutive failures. It will not run again until /voltpur reload. "
+                        + "Nothing else is affected. Last error: " + s.lastError
+                        + " - fix the cause, then run /voltpur reload.", null);
             }
+        }
+    }
+
+    /** Logging must never be able to break the guard itself. */
+    private static void log(Level level, String message, Throwable t) {
+        try {
+            if (t == null) Bukkit.getLogger().log(level, message);
+            else Bukkit.getLogger().log(level, message, t);
+        } catch (Throwable ignored) {
+            // Logger unavailable (very early startup) - counters are still updated.
         }
     }
 
@@ -134,7 +229,9 @@ public final class VoltPurGuard {
         if (s.skipped() > 0) sb.append(" skipped=").append(s.skipped());
         if (s.failures() > 0) sb.append(" fails=").append(s.failures());
         if (s.lastRunAt > 0) sb.append(" last=").append(ago(s.lastRunAt));
-        if (s.failingNow()) sb.append(" FAILING(").append(s.lastError).append(")");
+        if (s.tripped()) sb.append(" DISABLED-AFTER-FAILURES(").append(s.tripReason).append(")");
+        else if (s.failingNow()) sb.append(" FAILING(").append(s.lastError).append(")");
+        if (s.tripped() && s.shortCircuited() > 0) sb.append(" short-circuited=").append(s.shortCircuited());
         return sb.toString();
     }
 
