@@ -70,22 +70,6 @@ public final class VerifyCommand {
         check("lifetime failure counts are kept (only the streak resets)",
                 VoltPurGuard.stat(loop).failures() >= 9, "lost history");
 
-        System.out.println("[backup] a scheduled backup that keeps failing is not reported as healthy");
-        org.purpurmc.purpur.VoltPurBackup.Result failed =
-                org.purpurmc.purpur.VoltPurBackup.Result.failure("archive verification failed");
-        long before = VoltPurGuard.stat("WorldBackup").failures();
-        org.purpurmc.purpur.VoltPurBackup.recordScheduledResult(failed);
-        long after = VoltPurGuard.stat("WorldBackup").failures();
-        check("a failed scheduled backup is counted as a module failure", after == before + 1,
-                before + " -> " + after);
-        check("the module health line no longer claims it is fine when it is not",
-                VoltPurGuard.healthLine("WorldBackup").contains("FAILING")
-                        || VoltPurGuard.healthLine("WorldBackup").contains("DISABLED"),
-                VoltPurGuard.healthLine("WorldBackup"));
-        long okBefore = VoltPurGuard.stat("WorldBackup").failures();
-        org.purpurmc.purpur.VoltPurBackup.recordScheduledResult(null);
-        check("a null result is ignored", VoltPurGuard.stat("WorldBackup").failures() == okBefore, "counted anyway");
-
         System.out.println("[updater] RECOVERY.txt is written where nothing else works");
         Path recDir = work.resolve("recovery"); Files.createDirectories(recDir);
         Path recJar = recDir.resolve("server.jar");

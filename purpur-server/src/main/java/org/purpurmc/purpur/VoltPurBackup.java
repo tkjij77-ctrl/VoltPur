@@ -68,8 +68,11 @@ public final class VoltPurBackup {
                     () -> VoltPurGuard.run(MODULE, () -> {
                         Result result = runBackup(true);
                         if (!result.ok()) {
+                            // The failure was already reported to the Guard inside runBackup();
+                            // reporting it again here would count one failed attempt twice and
+                            // open the circuit breaker at half its configured threshold. A live
+                            // test caught exactly that, so this stays a log line only.
                             Bukkit.getLogger().warning("[VoltPur-Backup] Scheduled backup FAILED: " + result.error());
-                            recordScheduledResult(result);
                         }
                     }), periodTicks, periodTicks);
             Bukkit.getLogger().info("[VoltPur-Backup] Active - every " + VoltPurConfig.backupIntervalMinutes
@@ -78,19 +81,6 @@ public final class VoltPurBackup {
         } catch (Throwable t) {
             VoltPurGuard.failure(MODULE, t);
         }
-    }
-
-    /**
-     * Reports a failed scheduled backup to the Guard, so it is counted like any other
-     * module failure. Without this the warning went to the log and nowhere else: every
-     * scheduled backup could fail forever while /voltpur modules still called the module
-     * healthy - exactly the blindness the Guard exists to remove. With it, a backup that
-     * keeps failing stops being retried on a schedule nobody reads.
-     */
-    public static void recordScheduledResult(Result result) {
-        if (result == null || result.ok()) return;
-        VoltPurGuard.failure(MODULE, new IllegalStateException(
-                result.error() == null ? "scheduled backup failed" : result.error()));
     }
 
     /** Called by the updater before replacing the server jar. Never throws. */
