@@ -222,12 +222,23 @@ public final class PlusBootstrap {
         return LOADED_MODULES.get(id);
     }
 
-    public static void resetForTesting() {
+    public static synchronized void unloadAll() {
         for (LoadedModule m : LOADED_MODULES.values()) {
-            try { m.getClassLoader().close(); } catch (Exception ignored) {}
+            try {
+                m.getInstance().onServerShutdown();
+            } catch (Throwable t) {
+                VoltPurLogger.warn("VoltPur-Plus", "shutdown-" + m.getManifest().getId(), t);
+            }
+            try {
+                m.getClassLoader().close();
+            } catch (Throwable ignored) {}
         }
         LOADED_MODULES.clear();
         ALLOWED_HASHES.clear();
         bootstrapped = false;
+    }
+
+    public static void resetForTesting() {
+        unloadAll();
     }
 }

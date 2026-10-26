@@ -49,8 +49,13 @@ EOF
 
 SERVER_LOG="$WORK_DIR/server_boot.log"
 
+JAVA_BIN="java"
+if [ -x "/home/user/.gradle/jdks/eclipse_adoptium-25-amd64-linux.2/bin/java" ]; then
+    JAVA_BIN="/home/user/.gradle/jdks/eclipse_adoptium-25-amd64-linux.2/bin/java"
+fi
+
 echo "🚀 Launching VoltPur headless server..."
-java -Xms512M -Xmx1G -jar "$JAR_FILE" --nogui > "$SERVER_LOG" 2>&1 &
+"$JAVA_BIN" -Xms512M -Xmx1G -jar "$JAR_FILE" --nogui > "$SERVER_LOG" 2>&1 &
 SERVER_PID=$!
 
 BOOTED=false

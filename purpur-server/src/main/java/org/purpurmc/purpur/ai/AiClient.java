@@ -275,4 +275,9 @@ public final class AiClient {
     public static void clearCache() {
         RESPONSE_CACHE.clear();
     }
+
+    public static void shutdown() {
+        RESPONSE_CACHE.clear();
+        PLAYER_COOLDOWNS.clear();
+    }
 }

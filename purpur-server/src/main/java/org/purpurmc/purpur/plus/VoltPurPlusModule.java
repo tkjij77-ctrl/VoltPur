@@ -21,4 +21,9 @@ public interface VoltPurPlusModule {
      * Safe to access Bukkit worlds, plugins, and services.
      */
     void onServerReady();
+
+    /**
+     * Called during server shutdown to cleanly release resources.
+     */
+    default void onServerShutdown() {}
 }
