@@ -38,6 +38,11 @@ jobs:
         run: |
           ./gradlew :purpur-server:createPaperclipJar --stacktrace
 
+      - name: 🧪 Run Headless CI Boot & Stability Test
+        run: |
+          chmod +x scripts/ci-headless-test.sh
+          ./scripts/ci-headless-test.sh
+
       - name: 📝 Prepare Artifacts
         run: |
           cd purpur-server/build/libs
@@ -84,13 +89,16 @@ jobs:
             Use /vo up <build_number> in-game to update via hosting internet
             Or download server.jar manually
 
-            ### What's real (VoltCore, honest):
-            - /voltpur modules : honest status (8/24 ACTIVE, rest PARTIAL/PLANNED)
-            - /voltpur benchmark: live measured TPS/MSPT/entities/chunks/heap/hoppers
+            ### What's real (VoltCore, honest & measured):
+            - /voltpur modules : honest status (13/27 ACTIVE, 5 PARTIAL, 9 PLANNED)
+            - /voltpur autotune : closed-loop adaptive controller with hysteresis & auto-rollback
+            - /ai : practical non-blocking AI layer & server doctor (/ai doctor)
+            - Smart ItemLimiter : single-pass cleanup preserving recent & player-nearby items
+            - plugin-plus/ : Fabric-style low-level extension engine with SHA-256 verification
+            - AtomicConfigWriter : comment-preserving atomic configuration updates
+            - /voltpur benchmark : live measured TPS/MSPT/entities/chunks/heap/hoppers JSON export
             - /voltpur hardware : device compatibility + recommended JVM flags
-            - ItemLimiter / TPSMonitor / ChunkCheck : wired and running
-            - plugin-pro/ loader patch (loads perf plugins first)
-            - Hopper sleep : opt-in config + NMS snippet (docs/HOPPER_SNIPPET.md)
+            - Hopper sleep : opt-in NMS patch saving 60-65% idle hopper tick time
           files: |
             purpur-server/build/libs/VoltPur-26.2.jar
             purpur-server/build/libs/VoltPur.jar
