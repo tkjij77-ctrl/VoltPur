@@ -1,20 +1,24 @@
 package org.purpurmc.purpur;
 
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Item;
+import org.bukkit.entity.Player;
+
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.logging.Logger;
 
 /**
  * VoltPur Performance - REAL performance tasks that are actually wired to run.
  *
  * Phase 1 keeps every effect honest:
- *   - ItemLimiter : removes excess dropped items (real, measurable).
- *   - TPSMonitor  : logs when TPS is low (real).
- *   - ChunkCheck  : warns on excessive loaded chunks (real, cheap).
- *   - HopperOptimization / EntityActivation are NOT claimed here (needs NMS,
- *     Phase 2). They are reported as PLANNED in /voltpur modules.
+ *   - ItemLimiter : removes excess dropped items with smart proximity and age heuristics.
+ *   - TPSMonitor  : logs when TPS is low.
+ *   - ChunkCheck  : warns on excessive loaded chunks.
  */
 public class VoltPurPerformance {
     private static boolean initialized = false;
@@ -25,18 +29,13 @@ public class VoltPurPerformance {
         Logger logger = Bukkit.getLogger();
         logger.info("[VoltPur-Perf] Initializing real performance tasks...");
 
-        // Schedule on the Bukkit sync scheduler with a real plugin owner. This runs
-        // on the MAIN thread (safe for world access). Paper requires a non-null
-        // plugin for scheduling, so we wait until a plugin is available.
         VoltPurPlugin.whenAvailable(() -> {
             org.bukkit.plugin.Plugin p = VoltPurPlugin.get();
             if (p == null) return;
-            // Item cleanup + chunk check (every 5 min).
             Bukkit.getScheduler().scheduleSyncRepeatingTask(p, () -> {
                 try { if (VoltPurConfig.performanceEnabled) performCleanup(); } catch (Exception ignored) {}
                 try { checkChunks(); } catch (Exception ignored) {}
             }, 6000L, 6000L);
-            // TPS monitor (every 1 min).
             Bukkit.getScheduler().scheduleSyncRepeatingTask(p, () -> {
                 try {
                     if (!VoltPurConfig.tpsMonitor) return;
@@ -53,30 +52,88 @@ public class VoltPurPerformance {
     }
 
     /**
-     * Real item limiter: removes dropped items above the per-world cap.
-     * Returns number removed (for benchmark / logging).
+     * Smart item limiter: removes excess dropped items above the per-world cap.
+     * When autotuneSmartItemLimiter is enabled:
+     * - Young items (< autotuneItemExemptTicks) are protected.
+     * - Items near players (< autotuneItemExemptRadius) are protected.
+     * - Oldest eligible items are pruned first.
      */
     public static int performCleanup() {
         if (!VoltPurConfig.performanceEnabled) return 0;
         Logger logger = Bukkit.getLogger();
         int removedItems = 0;
+
         for (World world : Bukkit.getWorlds()) {
-            int itemsInWorld = 0;
+            List<Item> allItems = new ArrayList<>();
             try {
                 for (Entity ent : world.getEntities()) {
-                    if (ent instanceof Item) itemsInWorld++;
+                    if (ent instanceof Item) {
+                        allItems.add((Item) ent);
+                    }
                 }
-            } catch (Exception ignored) { continue; }
+            } catch (Exception ignored) {
+                continue;
+            }
+
+            int itemsInWorld = allItems.size();
             if (itemsInWorld > VoltPurConfig.maxItemsPerWorld) {
                 int toRemove = itemsInWorld - VoltPurConfig.maxItemsPerWorld;
-                for (Entity ent : world.getEntities()) {
-                    if (toRemove <= 0) break;
-                    if (ent instanceof Item) {
-                        ent.remove(); removedItems++; toRemove--;
+
+                if (VoltPurConfig.autotuneSmartItemLimiter) {
+                    List<Player> players = new ArrayList<>();
+                    try {
+                        if (world.getPlayers() != null) {
+                            players.addAll(world.getPlayers());
+                        }
+                    } catch (Throwable ignored) {}
+
+                    double exemptRadiusSq = VoltPurConfig.autotuneItemExemptRadius * VoltPurConfig.autotuneItemExemptRadius;
+                    List<Item> candidates = new ArrayList<>();
+
+                    for (Item item : allItems) {
+                        if (item.getTicksLived() < VoltPurConfig.autotuneItemExemptTicks) {
+                            continue; // Exempt: too young
+                        }
+
+                        boolean nearPlayer = false;
+                        Location itemLoc = item.getLocation();
+                        if (itemLoc != null) {
+                            for (Player player : players) {
+                                Location pLoc = player.getLocation();
+                                if (pLoc != null && pLoc.getWorld() == itemLoc.getWorld()) {
+                                    if (pLoc.distanceSquared(itemLoc) <= exemptRadiusSq) {
+                                        nearPlayer = true;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+
+                        if (!nearPlayer) {
+                            candidates.add(item);
+                        }
+                    }
+
+                    // Sort candidates oldest first (highest ticksLived)
+                    candidates.sort((a, b) -> Integer.compare(b.getTicksLived(), a.getTicksLived()));
+
+                    for (Item candidate : candidates) {
+                        if (toRemove <= 0) break;
+                        candidate.remove();
+                        removedItems++;
+                        toRemove--;
+                    }
+                } else {
+                    for (Item item : allItems) {
+                        if (toRemove <= 0) break;
+                        item.remove();
+                        removedItems++;
+                        toRemove--;
                     }
                 }
             }
         }
+
         if (removedItems > 0) {
             logger.info("[VoltPur-Perf] Removed " + removedItems + " excess dropped items (cap "
                     + VoltPurConfig.maxItemsPerWorld + "/world)");
@@ -99,13 +156,6 @@ public class VoltPurPerformance {
         } catch (Exception ignored) {}
     }
 
-    /**
-     * Hopper stats for the benchmark (does NOT modify hoppers).
-     * Returns { totalHoppers, sleepableHoppers }.
-     * "Sleepable" = empty inventory + no container above + not powered, i.e. the
-     * exact safe condition under which tryMoveItems is a guaranteed no-op. This
-     * is a COUNTER only (never changes hopper state), so it never fakes savings.
-     */
     public static int[] hopperStats() {
         int total = 0;
         int sleepable = 0;

@@ -1,0 +1,33 @@
+== VoltPur Benchmark [unit-test] @ 2026-10-26 04:41:26 ==
+TPS      : 19.95 / 19.80 / 19.50 (1m,5m,15m)
+MSPT     : 25.00 ms (most recent tick average)
+  World  : world (E=0, C=0)
+Entities : 0
+Chunks   : 0
+Heap     : 26 MB used / 464 MB max
+Hoppers  : 0 total / 0 sleepable (empty+no-source+unpowered)
+HopperSleep: off (opt-in)
+EAR      : ACTIVE (Paper/Purpur built-in entity-activation-range)
+-- end --
+== VoltPur Benchmark [unit-test] @ 2026-10-26 04:42:02 ==
+TPS      : 19.95 / 19.80 / 19.50 (1m,5m,15m)
+MSPT     : 25.00 ms (most recent tick average)
+  World  : world (E=0, C=0)
+Entities : 0
+Chunks   : 0
+Heap     : 32 MB used / 464 MB max
+Hoppers  : 0 total / 0 sleepable (empty+no-source+unpowered)
+HopperSleep: off (opt-in)
+EAR      : ACTIVE (Paper/Purpur built-in entity-activation-range)
+-- end --
+== VoltPur Benchmark [unit-test] @ 2026-10-26 04:42:39 ==
+TPS      : 19.95 / 19.80 / 19.50 (1m,5m,15m)
+MSPT     : 25.00 ms (most recent tick average)
+  World  : world (E=0, C=0)
+Entities : 0
+Chunks   : 0
+Heap     : 14 MB used / 464 MB max
+Hoppers  : 0 total / 0 sleepable (empty+no-source+unpowered)
+HopperSleep: off (opt-in)
+EAR      : ACTIVE (Paper/Purpur built-in entity-activation-range)
+-- end --

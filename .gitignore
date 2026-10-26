@@ -3,9 +3,7 @@ core.*
 hs_err_pid*
 
 # Intellij
-/.idea/*
-!/.idea/runConfigurations
-!/.idea/icon.svg
+.idea/
 *.iml
 *.ipr
 *.iws

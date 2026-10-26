@@ -42,12 +42,14 @@ public class VoltPurHelp extends Command {
         sender.sendMessage("§b/voltpur hardware §7- device compatibility + recommended JVM flags");
         sender.sendMessage("§b/voltpur flags §7- recommended JVM start command for THIS machine");
         sender.sendMessage("§b/voltpur optimize §7- apply hardware-tuned server.properties (OP)");
+        sender.sendMessage("§b/voltpur autotune [status|enable|disable|history|rollback] §7- adaptive performance controller (OP)");
         sender.sendMessage("§b/voltpur benchmark §7- live measured TPS/MSPT/entities/chunks/heap/hoppers");
         sender.sendMessage("§b/voltpur reload §7- reload voltpur.yml (OP)");
         sender.sendMessage("§b/vo in <plugin-url> <plugins|plugin-pro> §7- securely download a plugin JAR (OP; restart required)");
         sender.sendMessage("§b/vo up §7- update server.jar from latest build (OP)");
         sender.sendMessage("§b/vo up <buildId> §7- update to a specific build");
         sender.sendMessage("§b/padmin §7- start PAdmin WebUI (localhost:25567)");
+        sender.sendMessage("§b/ai [doctor|status|models|test|<q>] §7- practical AI layer & performance doctor");
         sender.sendMessage("");
         sender.sendMessage("§7Config: §evoltpur.yml§7 (modules.hardware.*, modules.performance.*)");
         sender.sendMessage("§7Reports: §elogs/voltpur-hardware-report.txt§7, §elogs/voltpur-benchmark.txt§7, §elogs/voltpur-tuning.txt§7");

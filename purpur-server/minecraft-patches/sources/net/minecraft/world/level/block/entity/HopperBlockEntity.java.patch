@@ -1,0 +1,25 @@
+--- a/net/minecraft/world/level/block/entity/HopperBlockEntity.java
++++ b/net/minecraft/world/level/block/entity/HopperBlockEntity.java
+@@ -131,6 +_,22 @@
+     public static void pushItemsTick(final Level level, final BlockPos pos, final BlockState state, final HopperBlockEntity entity) {
+         entity.cooldownTime--;
+         entity.tickedGameTime = level.getGameTime();
++        // VoltPur start - safe empty-hopper rest (opt-in, behavior-preserving)
++        // tryMoveItems is a guaranteed no-op when the hopper is empty, has no
++        // source container above, and has no items in its pickup zone. Resting
++        // under exactly those conditions cannot break farms or item movement.
++        if (org.purpurmc.purpur.VoltPurConfig.hopperSleepEnabled
++                && entity.isEmpty()
++                && !entity.isOnCooldown()) {
++            BlockPos blockPos = BlockPos.containing(entity.getLevelX(), entity.getLevelY() + 1.0, entity.getLevelZ());
++            BlockState blockState = level.getBlockState(blockPos);
++            if (getSourceContainer(level, entity, blockPos, blockState) == null
++                    && getItemsAtAndAbove(level, entity).isEmpty()) {
++                entity.setCooldown(org.purpurmc.purpur.VoltPurConfig.hopperSleepCooldown);
++                return;
++            }
++        }
++        // VoltPur end
+         if (!entity.isOnCooldown()) {
+             entity.setCooldown(0);
+             // Spigot start

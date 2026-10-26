@@ -9,22 +9,27 @@ import org.purpurmc.purpur.VoltPurModules;
 import org.purpurmc.purpur.VoltPurTuning;
 import org.purpurmc.purpur.VoltPurBenchmark;
 import org.purpurmc.purpur.VoltPurOptimizer;
+import org.purpurmc.purpur.VoltPurAutotune;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandSender;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import org.bukkit.Location;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
+import java.util.zip.ZipOutputStream;
 import java.util.concurrent.atomic.AtomicBoolean;
+import org.purpurmc.purpur.util.VoltPurLogger;
 
 public class VoltPurCommand extends Command {
     // Cached recent successful run IDs (index 0 = newest), used by /vo up list + numeric selection.
@@ -34,7 +39,7 @@ public class VoltPurCommand extends Command {
     public VoltPurCommand(String name) {
         super(name);
         this.description = "VoltPur main command - help, diagnostics, plugin install, update";
-        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|benchmark|reload|in|up]";
+        this.usageMessage = "/voltpur [help|version|modules|status|worlds|hardware|flags|optimize|autotune|benchmark|reload|in|up]";
         this.setPermission(null);
         this.setAliases(java.util.Arrays.asList("vo"));
     }
@@ -42,8 +47,13 @@ public class VoltPurCommand extends Command {
     @Override
     public List<String> tabComplete(CommandSender sender, String alias, String[] args, Location location) {
         if (args.length == 1) {
-            return Stream.of("help", "version", "modules", "status", "worlds", "hardware", "flags", "optimize", "benchmark", "reload", "in", "up")
+            return Stream.of("help", "version", "modules", "status", "worlds", "hardware", "flags", "optimize", "autotune", "benchmark", "reload", "in", "up")
                 .filter(s -> s.startsWith(args[0].toLowerCase()))
+                .collect(Collectors.toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("autotune")) {
+            return Stream.of("status", "enable", "disable", "history", "rollback")
+                .filter(s -> s.startsWith(args[1].toLowerCase()))
                 .collect(Collectors.toList());
         }
         if (args.length == 3 && args[0].equalsIgnoreCase("in")) {
@@ -51,8 +61,16 @@ public class VoltPurCommand extends Command {
                 .filter(s -> s.startsWith(args[2].toLowerCase()))
                 .collect(Collectors.toList());
         }
-        if (args.length == 2 && (args[0].equalsIgnoreCase("up") || args[0].equalsIgnoreCase("update"))) {
-            return Stream.of("list").filter(s -> s.startsWith(args[1].toLowerCase())).collect(Collectors.toList());
+        if (args.length >= 2 && (args[0].equalsIgnoreCase("up") || args[0].equalsIgnoreCase("update"))) {
+            if (args.length == 2) {
+                java.util.List<String> suggestions = new java.util.ArrayList<>();
+                suggestions.add("list");
+                for (int i = 1; i <= Math.max(1, CACHED_RUN_IDS.size()); i++) suggestions.add(String.valueOf(i));
+                return suggestions.stream().filter(s -> s.startsWith(args[1].toLowerCase())).collect(Collectors.toList());
+            }
+            java.util.List<String> flags = java.util.Arrays.asList("--confirm", "--clean", "--full-wipe", "--no-backup");
+            String last = args[args.length - 1].toLowerCase();
+            return flags.stream().filter(s -> s.startsWith(last)).collect(Collectors.toList());
         }
         return Collections.emptyList();
     }
@@ -79,7 +97,8 @@ public class VoltPurCommand extends Command {
                 sender.sendMessage(Component.text("  " + VoltPurModules.line(name), NamedTextColor.GRAY));
             }
             sender.sendMessage(Component.text("ACTIVE=" + VoltPurModules.activeCount() + " PARTIAL="
-                + (VoltPurModules.totalCount() - VoltPurModules.activeCount()) + " | PLANNED listed honestly.", NamedTextColor.YELLOW));
+                + VoltPurModules.partialCount() + " PLANNED=" + VoltPurModules.plannedCount()
+                + (VoltPurModules.degradedCount() > 0 ? " DEGRADED=" + VoltPurModules.degradedCount() : ""), NamedTextColor.YELLOW));
             return true;
         }
         if (args[0].equalsIgnoreCase("status")) {
@@ -133,6 +152,61 @@ public class VoltPurCommand extends Command {
             VoltPurTuning.writeTuningSheet();
             sender.sendMessage(Component.text(applied ? "Applied! Sheet -> logs/voltpur-tuning.txt (restart to fully take effect)"
                     : "Not applied. Enable modules.hardware.auto-tune in voltpur.yml.", applied ? NamedTextColor.GREEN : NamedTextColor.YELLOW));
+            return true;
+        }
+
+        // ---- Autotune: closed-loop adaptive controller (§4.1) ----
+        if (args[0].equalsIgnoreCase("autotune")) {
+            if (!sender.hasPermission("voltpur.admin.autotune") && !sender.hasPermission("voltpur.admin.tune") && !sender.isOp()) {
+                sender.sendMessage(Component.text("No permission - requires voltpur.admin.autotune or OP", NamedTextColor.RED));
+                return true;
+            }
+            if (args.length == 1 || args[1].equalsIgnoreCase("status")) {
+                sender.sendMessage(Component.text("=== [VoltPur] Autotune Status (§4.1) ===", NamedTextColor.GOLD));
+                sender.sendMessage(Component.text("Mode: " + VoltPurConfig.autotuneMode.toUpperCase()
+                        + (VoltPurConfig.optimizerEnabled ? " (Optimizer ON)" : " (Optimizer OFF)"), NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("Interval: " + VoltPurConfig.autotuneIntervalSeconds + "s | Consecutive High Cycles: "
+                        + VoltPurAutotune.getConsecutiveHighCycles() + "/2", NamedTextColor.AQUA));
+                sender.sendMessage(Component.text(String.format("Current MSPT: %.2f ms | Safe Min View: %d | Safe Min Sim: %d",
+                        VoltPurAutotune.getAverageMspt(), VoltPurConfig.autotuneMinViewDistance, VoltPurConfig.autotuneMinSimulationDistance), NamedTextColor.AQUA));
+                Map<String, VoltPurAutotune.WorldBase> baseMap = VoltPurAutotune.getBaseSettings();
+                for (org.bukkit.World w : Bukkit.getWorlds()) {
+                    VoltPurAutotune.WorldBase base = baseMap.get(w.getName());
+                    int baseView = base != null ? base.baseViewDistance : w.getViewDistance();
+                    int baseSim = base != null ? base.baseSimulationDistance : w.getSimulationDistance();
+                    int baseMon = base != null ? base.baseMonsterLimit : w.getSpawnLimit(org.bukkit.entity.SpawnCategory.MONSTER);
+                    sender.sendMessage(Component.text(String.format("  World %s: View=%d (base %d), Sim=%d (base %d), Monsters=%d (base %d)",
+                            w.getName(), w.getViewDistance(), baseView, w.getSimulationDistance(), baseSim,
+                            w.getSpawnLimit(org.bukkit.entity.SpawnCategory.MONSTER), baseMon), NamedTextColor.GRAY));
+                }
+                sender.sendMessage(Component.text("Decisions recorded: " + VoltPurAutotune.getHistory().size() + " | Use /voltpur autotune history", NamedTextColor.GRAY));
+                return true;
+            }
+            if (args[1].equalsIgnoreCase("enable")) {
+                VoltPurConfig.autotuneMode = "active";
+                VoltPurAutotune.init();
+                sender.sendMessage(Component.text("[VoltPur] Autotune enabled in ACTIVE mode (automatic live adjustments enabled).", NamedTextColor.GREEN));
+                return true;
+            }
+            if (args[1].equalsIgnoreCase("disable")) {
+                VoltPurConfig.autotuneMode = "advisor";
+                sender.sendMessage(Component.text("[VoltPur] Autotune set to ADVISOR mode (recommendations logged, no automated live adjustments).", NamedTextColor.YELLOW));
+                return true;
+            }
+            if (args[1].equalsIgnoreCase("history")) {
+                sender.sendMessage(Component.text("=== [VoltPur] Autotune Decision History (Last 20) ===", NamedTextColor.GOLD));
+                List<String> lines = VoltPurAutotune.getHistoryLines();
+                for (String line : lines) {
+                    sender.sendMessage(Component.text(line));
+                }
+                return true;
+            }
+            if (args[1].equalsIgnoreCase("rollback")) {
+                sender.sendMessage(Component.text("[VoltPur] Rolling back autotune to base values...", NamedTextColor.YELLOW));
+                VoltPurAutotune.rollback(sender);
+                return true;
+            }
+            sender.sendMessage(Component.text("Usage: /voltpur autotune [status|enable|disable|history|rollback]", NamedTextColor.RED));
             return true;
         }
 
@@ -197,10 +271,10 @@ public class VoltPurCommand extends Command {
                 scheduleAsync(sender, () -> listBuilds(sender));
                 return true;
             }
-            // /vo up <number> - install the selected build number from the last list
+            // /vo up <number> [--confirm] [--clean] [--full-wipe] [--no-backup]
             String buildId = args.length > 1 ? args[1] : null;
             if (buildId == null || !buildId.matches("\\d{1,2}")) {
-                sender.sendMessage(Component.text("Usage: /vo up list  (show builds)  |  /vo up <1-5>  (install build number)", NamedTextColor.RED));
+                sender.sendMessage(Component.text("Usage: /vo up list (show builds) | /vo up <1-5> --confirm", NamedTextColor.RED));
                 return true;
             }
             if (CACHED_RUN_IDS.isEmpty()) {
@@ -212,12 +286,40 @@ public class VoltPurCommand extends Command {
                 sender.sendMessage(Component.text("Invalid number. Use /vo up list to see available builds.", NamedTextColor.RED));
                 return true;
             }
+
+            boolean confirmed = false;
+            boolean clean = false;
+            boolean fullWipe = false;
+            boolean noBackup = false;
+            for (int i = 2; i < args.length; i++) {
+                String a = args[i].toLowerCase();
+                if (a.equals("--confirm")) confirmed = true;
+                else if (a.equals("--clean")) clean = true;
+                else if (a.equals("--full-wipe")) fullWipe = true;
+                else if (a.equals("--no-backup")) noBackup = true;
+            }
+
+            if (!confirmed) {
+                sender.sendMessage(Component.text("=== [VoltPur Updater - Confirmation Required] ===", NamedTextColor.GOLD));
+                sender.sendMessage(Component.text("Target: build #" + (idx + 1) + " (GitHub Run " + CACHED_RUN_IDS.get(idx) + ")", NamedTextColor.AQUA));
+                sender.sendMessage(Component.text("To apply this update, add --confirm to your command:", NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("  /vo up " + (idx + 1) + " --confirm", NamedTextColor.GREEN));
+                sender.sendMessage(Component.text("    -> Standard update (replaces server.jar with pre-backup; keeps plugins, configs & worlds)", NamedTextColor.GRAY));
+                sender.sendMessage(Component.text("  /vo up " + (idx + 1) + " --clean --confirm", NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("    -> Updates jar + cleanly resets server configs (plugins & worlds kept)", NamedTextColor.GRAY));
+                sender.sendMessage(Component.text("  /vo up " + (idx + 1) + " --full-wipe --confirm", NamedTextColor.RED));
+                sender.sendMessage(Component.text("    -> Wipes configs & plugins (worlds & eula kept - destructive!)", NamedTextColor.GRAY));
+                return true;
+            }
+
             buildId = CACHED_RUN_IDS.get(idx);
             final String finalBuildId = buildId;
+            final boolean finalClean = clean;
+            final boolean finalFullWipe = fullWipe;
+            final boolean finalNoBackup = noBackup;
             sender.sendMessage(Component.text("Selected build #" + (idx + 1) + " -> run " + buildId, NamedTextColor.GREEN));
-            sender.sendMessage(Component.text("[VoltPur] Clean update: ALL server files will be WIPED (worlds + eula.txt kept), then rebuilt like a first run.", NamedTextColor.GOLD));
-            sender.sendMessage(Component.text("[VoltPur] VoltPur Updater - Downloading build " + buildId + "...", NamedTextColor.YELLOW));
-            scheduleAsync(sender, () -> doUpdate(sender, finalBuildId));
+            sender.sendMessage(Component.text("[VoltPur] Starting update process...", NamedTextColor.YELLOW));
+            scheduleAsync(sender, () -> doUpdate(sender, finalBuildId, finalClean, finalFullWipe, finalNoBackup));
             return true;
         }
         sender.sendMessage(Component.text("Usage: "+usageMessage, NamedTextColor.RED));
@@ -295,7 +397,7 @@ public class VoltPurCommand extends Command {
         }
     }
 
-    private void doUpdate(CommandSender sender, String buildId) {
+    private void doUpdate(CommandSender sender, String buildId, boolean clean, boolean fullWipe, boolean noBackup) {
         try {
             String repo = "tkjij77-ctrl/VoltPur";
             String token = VoltPurConfig.githubToken;
@@ -337,37 +439,75 @@ public class VoltPurCommand extends Command {
                 String runDetail = httpGet("https://api.github.com/repos/" + repo + "/actions/runs/" + runId, hasToken ? token : null);
                 headSha = extractJson(runDetail, "head_sha");
                 runNumber = extractJsonNumber(runDetail, "run_number");
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                VoltPurLogger.warn("Updater", "Could not fetch run details", e);
+            }
             final String shortSha = headSha.length() >= 7 ? headSha.substring(0, 7) : headSha;
 
+            // 1. Automatic Pre-update Backup (§7.2)
+            if (!noBackup) {
+                createPreUpdateBackup(sender);
+            }
+
             if (!hasToken) {
-                sender.sendMessage(Component.text("[WARN] No GitHub token - downloading the SELECTED build from its public release...", NamedTextColor.YELLOW));
+                sender.sendMessage(Component.text("[WARN] No GitHub token - downloading build from public release...", NamedTextColor.YELLOW));
                 try {
                     java.nio.file.Path tempJar = Files.createTempFile("voltpur-release-", ".jar");
                     boolean gotExact = false;
+                    String exactUrl = "";
                     if (!runNumber.isEmpty() && !headSha.isEmpty()) {
                         String tag = "build-" + runNumber + "-" + headSha;
-                        String exactUrl = "https://github.com/" + repo + "/releases/download/" + tag + "/VoltPur-26.2.jar";
+                        exactUrl = "https://github.com/" + repo + "/releases/download/" + tag + "/VoltPur-26.2.jar";
                         sender.sendMessage(Component.text("Target: build #" + runNumber + " (commit " + shortSha + "), tag " + tag, NamedTextColor.AQUA));
                         sender.sendMessage(Component.text("Downloading: " + exactUrl, NamedTextColor.YELLOW));
-                        try { downloadFilePublic(exactUrl, tempJar); gotExact = true; }
-                        catch (Exception exTag) { sender.sendMessage(Component.text("[WARN] Exact-build release asset not found (" + exTag.getMessage() + "). Falling back to latest.", NamedTextColor.YELLOW)); }
+                        try {
+                            downloadFilePublic(exactUrl, tempJar);
+                            gotExact = true;
+                        } catch (Exception exTag) {
+                            sender.sendMessage(Component.text("[WARN] Exact-build release asset not found (" + exTag.getMessage() + "). Falling back to latest.", NamedTextColor.YELLOW));
+                        }
                     }
+                    String downloadedUrl = gotExact ? exactUrl : "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
                     if (!gotExact) {
-                        String latestUrl = "https://github.com/" + repo + "/releases/latest/download/VoltPur-26.2.jar";
-                        sender.sendMessage(Component.text("Downloading latest release: " + latestUrl, NamedTextColor.YELLOW));
-                        downloadFilePublic(latestUrl, tempJar);
+                        sender.sendMessage(Component.text("Downloading latest release: " + downloadedUrl, NamedTextColor.YELLOW));
+                        downloadFilePublic(downloadedUrl, tempJar);
                     }
                     long size = Files.size(tempJar);
                     if (size < 1000000) {
+                        Files.deleteIfExists(tempJar);
                         throw new Exception("Downloaded file too small (" + size + " bytes) - release may not exist yet. Set github-token.");
                     }
                     sender.sendMessage(Component.text("Downloaded jar: " + (size/1024/1024) + "MB" + (gotExact ? " (exact build #" + runNumber + ")" : " (latest)"), NamedTextColor.GREEN));
-                    // CLEAN REINSTALL: wipe everything except worlds + eula.txt, then place the new jar.
-                    cleanReinstallKeepingWorlds(sender);
+
+                    // 2. SHA-256 Checksum Verification (§7.3)
+                    String shaUrl = downloadedUrl + ".sha256";
+                    String expectedSha = null;
+                    try {
+                        java.nio.file.Path tempSha = Files.createTempFile("voltpur-sha-", ".sha256");
+                        downloadFilePublic(shaUrl, tempSha);
+                        expectedSha = Files.readString(tempSha);
+                        Files.deleteIfExists(tempSha);
+                    } catch (Exception exSha) {
+                        sender.sendMessage(Component.text("[WARN] Could not download .sha256 checksum asset: " + exSha.getMessage(), NamedTextColor.YELLOW));
+                    }
+                    if (expectedSha != null && !expectedSha.trim().isEmpty()) {
+                        verifySha256(tempJar, expectedSha, sender);
+                    } else {
+                        sender.sendMessage(Component.text("[WARN] Proceeding without remote SHA-256 verification (no .sha256 asset found on release).", NamedTextColor.YELLOW));
+                    }
+
+                    // 3. Selective wiping based on explicit flags (§7.2)
+                    if (fullWipe) {
+                        cleanReinstallKeepingWorlds(sender, true);
+                    } else if (clean) {
+                        cleanReinstallKeepingWorlds(sender, false);
+                    } else {
+                        sender.sendMessage(Component.text("[VoltPur] Standard update: server configs, plugins, and worlds kept intact.", NamedTextColor.GREEN));
+                    }
+
                     Files.copy(tempJar, java.nio.file.Path.of("server.jar"), StandardCopyOption.REPLACE_EXISTING);
                     writeInstalledStamp(runNumber, runId, headSha, gotExact);
-                    sender.sendMessage(Component.text("[OK] Clean-installed " + (gotExact ? "build #" + runNumber + " (commit " + shortSha + ")" : "latest release") + ". Worlds kept.", NamedTextColor.GREEN));
+                    sender.sendMessage(Component.text("[OK] Updated to " + (gotExact ? "build #" + runNumber + " (commit " + shortSha + ")" : "latest release") + ".", NamedTextColor.GREEN));
                     sender.sendMessage(Component.text("Restart from your panel (or /restart) to apply. After boot, the VoltPur banner confirms the installed build.", NamedTextColor.YELLOW));
                     Files.deleteIfExists(tempJar);
                     return;
@@ -388,16 +528,23 @@ public class VoltPurCommand extends Command {
             sender.sendMessage(Component.text("Extracting server.jar...", NamedTextColor.YELLOW));
             java.nio.file.Path tempDir = Files.createTempDirectory("voltpur-extract-");
             String extractedJar = null;
+            String expectedSha = null;
             try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(tempZip))) {
                 ZipEntry entry;
                 while ((entry = zis.getNextEntry()) != null) {
                     String name = entry.getName();
+                    if (name.endsWith(".sha256")) {
+                        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                        byte[] b = new byte[1024];
+                        int len;
+                        while ((len = zis.read(b)) > 0) baos.write(b, 0, len);
+                        expectedSha = baos.toString(StandardCharsets.UTF_8);
+                    }
                     if (name.equals("server.jar") || name.equals("VoltPur-26.2.jar") || name.equals("VoltPur.jar")) {
                         java.nio.file.Path outPath = tempDir.resolve(name);
                         Files.copy(zis, outPath, StandardCopyOption.REPLACE_EXISTING);
                         if (name.equals("server.jar") || extractedJar == null) {
                             extractedJar = outPath.toString();
-                            if (name.equals("server.jar")) extractedJar = outPath.toString();
                         }
                     }
                     zis.closeEntry();
@@ -413,32 +560,142 @@ public class VoltPurCommand extends Command {
             }
             if (extractedJar == null) throw new Exception("No jar found in artifact zip");
 
-            // CLEAN REINSTALL: wipe everything except worlds + eula.txt, then place the new jar.
-            cleanReinstallKeepingWorlds(sender);
+            // SHA-256 Checksum Verification
+            if (expectedSha != null && !expectedSha.trim().isEmpty()) {
+                verifySha256(java.nio.file.Path.of(extractedJar), expectedSha, sender);
+            }
+
+            // Selective wiping
+            if (fullWipe) {
+                cleanReinstallKeepingWorlds(sender, true);
+            } else if (clean) {
+                cleanReinstallKeepingWorlds(sender, false);
+            } else {
+                sender.sendMessage(Component.text("[VoltPur] Standard update: server configs, plugins, and worlds kept intact.", NamedTextColor.GREEN));
+            }
+
             java.nio.file.Path targetJar = java.nio.file.Path.of("server.jar");
             Files.copy(java.nio.file.Path.of(extractedJar), targetJar, StandardCopyOption.REPLACE_EXISTING);
             long newSize = Files.size(targetJar);
             writeInstalledStamp(runNumber, runId, headSha, true);
-            sender.sendMessage(Component.text("[OK] Clean-installed build #" + (runNumber.isEmpty() ? runId : runNumber) + " (commit " + shortSha + ", " + (newSize/1024/1024) + "MB). Worlds kept.", NamedTextColor.GREEN));
+            sender.sendMessage(Component.text("[OK] Updated to build #" + (runNumber.isEmpty() ? runId : runNumber) + " (commit " + shortSha + ", " + (newSize/1024/1024) + "MB).", NamedTextColor.GREEN));
             sender.sendMessage(Component.text("Restart from your panel (or /restart) to apply. After boot, the VoltPur banner confirms the installed build.", NamedTextColor.YELLOW));
             Files.deleteIfExists(tempZip);
 
         } catch (Exception e) {
             sender.sendMessage(Component.text("[FAIL] Update failed: " + e.getMessage(), NamedTextColor.RED));
-            e.printStackTrace();
-            Bukkit.getLogger().warning("[VoltPur] Update failed: " + e.getMessage());
+            VoltPurLogger.error("Updater", "Update failed", e);
         }
     }
 
     /**
-     * CLEAN REINSTALL (keeps worlds): deletes every file/folder in the server root
-     * EXCEPT the world folders and eula.txt, so the next start regenerates configs,
-     * libraries, cache, plugins, logs, etc. exactly like a first run - while player
-     * worlds (progress) survive. Called by the updater right before the new
-     * server.jar is written into place.
+     * Automatic Pre-update Backup (§7.2):
+     * Zips server configs, plugins, and root files (excluding worlds, logs, caches)
+     * into backups/pre-update-<timestamp>.zip before any update or wipe.
      */
-    private void cleanReinstallKeepingWorlds(CommandSender sender) {
-        sender.sendMessage(Component.text("Clean reinstall: wiping server files (worlds + eula.txt are KEPT)...", NamedTextColor.YELLOW));
+    private void createPreUpdateBackup(CommandSender sender) {
+        try {
+            java.io.File dir = new java.io.File("backups");
+            if (!dir.exists()) dir.mkdirs();
+            String stamp = new java.text.SimpleDateFormat("yyyyMMdd-HHmmss").format(new java.util.Date());
+            java.io.File archive = new java.io.File(dir, "pre-update-" + stamp + ".zip");
+            sender.sendMessage(Component.text("[VoltPur] Creating pre-update backup: " + archive.getName() + "...", NamedTextColor.YELLOW));
+
+            int count = 0;
+            byte[] buf = new byte[8192];
+            try (ZipOutputStream zos = new ZipOutputStream(new java.io.FileOutputStream(archive))) {
+                java.io.File root = new java.io.File(".").getAbsoluteFile();
+                java.io.File[] files = root.listFiles();
+                if (files != null) {
+                    for (java.io.File f : files) {
+                        String name = f.getName();
+                        if (isWorldFolder(f) || name.equalsIgnoreCase("backups")
+                                || name.equalsIgnoreCase("logs") || name.equalsIgnoreCase("cache")
+                                || name.equalsIgnoreCase(".cache") || name.equalsIgnoreCase("libraries")
+                                || name.startsWith("voltpur-update-") || name.startsWith("voltpur-release-")) {
+                            continue;
+                        }
+                        if (f.isDirectory()) {
+                            count += zipFolderRec(f, name, zos, buf);
+                        } else if (f.isFile() && !name.equals("session.lock")) {
+                            zipFileEntry(f, name, zos, buf);
+                            count++;
+                        }
+                    }
+                }
+            }
+            long mb = archive.length() / (1024 * 1024);
+            sender.sendMessage(Component.text("[VoltPur] Pre-update backup created: " + archive.getPath() + " (" + mb + "MB, " + count + " files).", NamedTextColor.GREEN));
+            Bukkit.getLogger().info("[VoltPur] Pre-update backup created: " + archive.getPath() + " (" + archive.length() + " bytes)");
+        } catch (Exception e) {
+            sender.sendMessage(Component.text("[VoltPur] Warning: Pre-update backup failed: " + e.getMessage(), NamedTextColor.YELLOW));
+            VoltPurLogger.warn("Updater", "Pre-update backup failed", e);
+        }
+    }
+
+    private int zipFolderRec(java.io.File folder, String base, ZipOutputStream zos, byte[] buf) {
+        int c = 0;
+        java.io.File[] children = folder.listFiles();
+        if (children == null) return c;
+        for (java.io.File child : children) {
+            String path = base + "/" + child.getName();
+            if (child.isDirectory()) {
+                if (!isWorldFolder(child) && !child.getName().equalsIgnoreCase("cache")) {
+                    c += zipFolderRec(child, path, zos, buf);
+                }
+            } else if (child.isFile() && !child.getName().equals("session.lock")) {
+                zipFileEntry(child, path, zos, buf);
+                c++;
+            }
+        }
+        return c;
+    }
+
+    private void zipFileEntry(java.io.File file, String entryName, ZipOutputStream zos, byte[] buf) {
+        try (InputStream in = Files.newInputStream(file.toPath())) {
+            zos.putNextEntry(new ZipEntry(entryName));
+            int r;
+            while ((r = in.read(buf)) > 0) zos.write(buf, 0, r);
+            zos.closeEntry();
+        } catch (IOException ignored) {}
+    }
+
+    /** Computes SHA-256 hash of a file (§7.3). */
+    private String computeSha256(java.nio.file.Path path) throws Exception {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-256");
+        try (InputStream is = Files.newInputStream(path)) {
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) md.update(buf, 0, n);
+        }
+        byte[] d = md.digest();
+        StringBuilder sb = new StringBuilder();
+        for (byte b : d) sb.append(String.format("%02x", b));
+        return sb.toString();
+    }
+
+    /** Verifies SHA-256 hash of a file against expected hash (§7.3). */
+    private void verifySha256(java.nio.file.Path file, String expectedSha, CommandSender sender) throws Exception {
+        if (expectedSha == null || expectedSha.trim().isEmpty()) {
+            sender.sendMessage(Component.text("[VoltPur] Warning: No SHA-256 checksum available from release metadata.", NamedTextColor.YELLOW));
+            return;
+        }
+        String cleanExpected = expectedSha.trim().split("\\s+")[0].toLowerCase();
+        String computed = computeSha256(file).toLowerCase();
+        if (!computed.equals(cleanExpected)) {
+            throw new SecurityException("SHA-256 checksum mismatch! Expected: " + cleanExpected + " but got: " + computed + ". Aborting update.");
+        }
+        sender.sendMessage(Component.text("[OK] SHA-256 checksum verified (" + computed.substring(0, 12) + "...)", NamedTextColor.GREEN));
+        Bukkit.getLogger().info("[VoltPur] Verified SHA-256 for downloaded jar: " + computed);
+    }
+
+    /**
+     * CLEAN REINSTALL (§7.2):
+     * Worlds, eula.txt, server.jar, voltpur.yml, and backups are ALWAYS kept.
+     * plugins/ and plugin-pro/ are preserved unless wipePlugins (--full-wipe) is explicitly true.
+     */
+    private void cleanReinstallKeepingWorlds(CommandSender sender, boolean wipePlugins) {
+        sender.sendMessage(Component.text("Clean reinstall: wiping server files (worlds, eula.txt, and " + (wipePlugins ? "" : "plugins/") + " are KEPT)...", NamedTextColor.YELLOW));
         java.io.File root = new java.io.File(".").getAbsoluteFile();
         java.io.File[] entries = root.listFiles();
         if (entries == null) {
@@ -449,9 +706,11 @@ public class VoltPurCommand extends Command {
         java.util.List<String> keptWorlds = new java.util.ArrayList<>();
         for (java.io.File f : entries) {
             String name = f.getName();
-            // Never delete: the server.jar slot (about to be replaced), eula.txt,
-            // the install stamp, or any world folder.
-            if (name.equals("server.jar") || name.equalsIgnoreCase("eula.txt") || name.equalsIgnoreCase("voltpur-installed.txt")) {
+            // Never delete: the server.jar slot, eula.txt, install stamp, voltpur.yml, backups/
+            if (name.equals("server.jar") || name.equalsIgnoreCase("eula.txt")
+                    || name.equalsIgnoreCase("voltpur-installed.txt")
+                    || name.equalsIgnoreCase("voltpur.yml")
+                    || name.equalsIgnoreCase("backups")) {
                 kept++;
                 continue;
             }
@@ -460,10 +719,14 @@ public class VoltPurCommand extends Command {
                 keptWorlds.add(name);
                 continue;
             }
+            if (!wipePlugins && (name.equalsIgnoreCase("plugins") || name.equalsIgnoreCase("plugin-pro"))) {
+                kept++;
+                continue;
+            }
             if (deleteRecursively(f)) deleted++;
         }
         sender.sendMessage(Component.text("Wipe complete: removed " + deleted + " item(s), kept " + kept
-                + " (worlds: " + (keptWorlds.isEmpty() ? "none" : String.join(", ", keptWorlds)) + " + eula/jar).", NamedTextColor.GREEN));
+                + " (worlds: " + (keptWorlds.isEmpty() ? "none" : String.join(", ", keptWorlds)) + " + eula/jar/config" + (wipePlugins ? "" : "/plugins") + ").", NamedTextColor.GREEN));
     }
 
     /**
@@ -514,7 +777,9 @@ public class VoltPurCommand extends Command {
             fw.write("commit=" + (sha == null ? "" : sha) + "\n");
             fw.write("exact=" + exact + "\n");
             fw.write("installed-at=" + new java.util.Date() + "\n");
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            VoltPurLogger.warn("Updater", "Could not write install stamp", e);
+        }
     }
 
     /** Recursively deletes a file or directory. Returns true if the top entry was removed. */
