@@ -71,9 +71,9 @@ public final class AiRouter {
             case OPENROUTER:
                 endpoint = "https://openrouter.ai/api/v1/chat/completions";
                 if (model == null || model.isBlank() || "auto".equalsIgnoreCase(model)) {
-                    model = "meta-llama/llama-3.2-3b-instruct:free";
+                    model = "openrouter/free";
                 }
-                free = model.toLowerCase().endsWith(":free");
+                free = model.toLowerCase().endsWith(":free") || model.equalsIgnoreCase("openrouter/free");
                 break;
 
             case GROQ:
@@ -119,9 +119,9 @@ public final class AiRouter {
             default:
                 endpoint = "https://openrouter.ai/api/v1/chat/completions";
                 if (model == null || model.isBlank() || "auto".equalsIgnoreCase(model)) {
-                    model = "meta-llama/llama-3.2-3b-instruct:free";
+                    model = "openrouter/free";
                 }
-                free = model.toLowerCase().endsWith(":free");
+                free = model.toLowerCase().endsWith(":free") || model.equalsIgnoreCase("openrouter/free");
                 break;
         }
 

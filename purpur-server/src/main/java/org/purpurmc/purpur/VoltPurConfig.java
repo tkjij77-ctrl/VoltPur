@@ -113,6 +113,18 @@ public class VoltPurConfig {
         }
     }
 
+    public static void setAiModel(String model) {
+        aiModel = model;
+        if (config != null && CONFIG_FILE != null) {
+            config.set("ai.model", model);
+            try {
+                config.save(CONFIG_FILE);
+            } catch (IOException e) {
+                Bukkit.getLogger().warning("[VoltPur] Save failed: " + e.getMessage());
+            }
+        }
+    }
+
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
         config = new YamlConfiguration();

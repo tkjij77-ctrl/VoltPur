@@ -90,7 +90,7 @@ public class VoltPurAiTest {
         AiRouter.RouteInfo openrouterDefault = AiRouter.resolveRoute();
         assertEquals(AiRouter.Provider.OPENROUTER, openrouterDefault.provider);
         assertTrue(openrouterDefault.isFreeTier, "Default OpenRouter model must be free tier");
-        assertTrue(openrouterDefault.model.contains(":free"));
+        assertEquals("openrouter/free", openrouterDefault.model);
 
         // OpenRouter explicit paid model
         VoltPurConfig.aiModel = "anthropic/claude-3.5-sonnet";

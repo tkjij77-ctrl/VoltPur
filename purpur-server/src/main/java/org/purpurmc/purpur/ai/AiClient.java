@@ -52,12 +52,12 @@ public final class AiClient {
     private static final Map<UUID, Long> PLAYER_COOLDOWNS = new ConcurrentHashMap<>();
     private static final long COOLDOWN_MS = 30 * 1000L; // 30 seconds
 
-    // Fallback free models for OpenRouter on rate-limit (429)
+    // Fallback free models for OpenRouter on rate-limit (429) or not found (404)
     private static final List<String> OPENROUTER_FREE_FALLBACKS = Arrays.asList(
-            "meta-llama/llama-3.2-3b-instruct:free",
-            "google/gemini-2.0-flash-exp:free",
-            "qwen/qwen-2.5-7b-instruct:free",
-            "meta-llama/llama-3.1-8b-instruct:free"
+            "openrouter/free",
+            "liquid/lfm-2.5-2.6b:free",
+            "google/gemma-4-31b-it:free",
+            "nvidia/nemotron-3.5-lightning:free"
     );
 
     private AiClient() {}
@@ -208,11 +208,13 @@ public final class AiClient {
                     int statusCode = resp.statusCode();
                     String respBody = resp.body();
 
-                    // Automatic fallback on rate-limit (429) for OpenRouter (§5.4)
-                    if (statusCode == 429 && route.provider == AiRouter.Provider.OPENROUTER && retryDepth < OPENROUTER_FREE_FALLBACKS.size()) {
+                    // Automatic fallback on rate-limit (429) or unavailable (404) for OpenRouter (§5.4)
+                    if ((statusCode == 429 || statusCode == 404) && route.provider == AiRouter.Provider.OPENROUTER && retryDepth < OPENROUTER_FREE_FALLBACKS.size()) {
                         String nextModel = OPENROUTER_FREE_FALLBACKS.get(retryDepth);
-                        Bukkit.getLogger().info("[VoltPur-AI] Rate-limited on " + targetModel + ". Falling back to " + nextModel);
-                        return executeRequest(route, nextModel, systemPrompt, userPrompt, retryDepth + 1).join();
+                        if (!nextModel.equals(targetModel)) {
+                            Bukkit.getLogger().info("[VoltPur-AI] HTTP " + statusCode + " on " + targetModel + ". Falling back to " + nextModel);
+                            return executeRequest(route, nextModel, systemPrompt, userPrompt, retryDepth + 1).join();
+                        }
                     }
 
                     if (statusCode != 200) {

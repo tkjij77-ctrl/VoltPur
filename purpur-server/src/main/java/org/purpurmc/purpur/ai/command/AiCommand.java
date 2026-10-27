@@ -37,7 +37,7 @@ public class AiCommand extends Command {
     public AiCommand(String name) {
         super(name);
         this.description = "VoltPur practical AI assistant and server doctor";
-        this.usageMessage = "/ai [<question>|status|setkey|models|test|doctor|confirm-paid]";
+        this.usageMessage = "/ai [<question>|status|setkey|setmodel|models|test|doctor|confirm-paid]";
         this.setPermission(null); // Checked per subcommand
         this.setAliases(Arrays.asList("voltpurai", "vai"));
     }
@@ -49,6 +49,7 @@ public class AiCommand extends Command {
             list.add("status");
             if (sender.hasPermission(PERM_ADMIN)) {
                 list.add("setkey");
+                list.add("setmodel");
                 list.add("doctor");
                 list.add("models");
                 list.add("test");
@@ -60,6 +61,12 @@ public class AiCommand extends Command {
         }
         if (args.length == 2 && args[0].equalsIgnoreCase("setkey") && sender.hasPermission(PERM_ADMIN)) {
             return Stream.of("openrouter", "groq", "gemini", "openai", "auto", "custom")
+                    .filter(s -> s.startsWith(args[1].toLowerCase()))
+                    .collect(Collectors.toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("setmodel") && sender.hasPermission(PERM_ADMIN)) {
+            return Stream.of("openrouter/free", "liquid/lfm-2.5-2.6b:free", "google/gemma-4-31b-it:free",
+                    "llama-3.1-8b-instant", "gemini-1.5-flash", "gpt-4o-mini", "auto")
                     .filter(s -> s.startsWith(args[1].toLowerCase()))
                     .collect(Collectors.toList());
         }
@@ -83,6 +90,11 @@ public class AiCommand extends Command {
             case "setkey":
                 if (!checkAdmin(sender)) return true;
                 handleSetKey(sender, args);
+                return true;
+
+            case "setmodel":
+                if (!checkAdmin(sender)) return true;
+                handleSetModel(sender, args);
                 return true;
 
             case "models":
@@ -126,12 +138,30 @@ public class AiCommand extends Command {
         sender.sendMessage("§b/ai status §7- View AI provider, model, budget & usage");
         if (sender.hasPermission(PERM_ADMIN)) {
             sender.sendMessage("§b/ai setkey <provider> <key> §7- Link AI provider & set API key");
+            sender.sendMessage("§b/ai setmodel <model> §7- Set custom model (e.g. openrouter/free)");
             sender.sendMessage("§b/ai doctor §7- Run comprehensive performance diagnosis");
             sender.sendMessage("§b/ai models §7- View provider models and recommendations");
             sender.sendMessage("§b/ai test §7- Async connection and latency test");
             sender.sendMessage("§b/ai confirm-paid §7- Confirm permission to use paid models");
         }
         sender.sendMessage("§7Config: §evoltpur.yml §7(ai.*)");
+    }
+
+    private void handleSetModel(CommandSender sender, String[] args) {
+        if (args.length < 2) {
+            sender.sendMessage("§c[VoltPur AI] Usage: /ai setmodel <model_name>");
+            sender.sendMessage("§7Example: §b/ai setmodel openrouter/free");
+            return;
+        }
+
+        String model = args[1].trim();
+        VoltPurConfig.setAiModel(model);
+        AiClient.clearCache();
+
+        AiRouter.RouteInfo route = AiRouter.resolveRoute();
+        sender.sendMessage("§a[VoltPur AI] Active model updated to: §f" + route.model +
+                (route.isFreeTier ? " §a(FREE)" : " §e(PAID - requires /ai confirm-paid)"));
+        sender.sendMessage("§7Saved to voltpur.yml. Run §b/ai test §7to verify.");
     }
 
     private void handleSetKey(CommandSender sender, String[] args) {
@@ -206,11 +236,12 @@ public class AiCommand extends Command {
         sender.sendMessage("§7Active Model: §f" + route.model + (route.isFreeTier ? " §a(FREE)" : " §e(PAID)"));
         sender.sendMessage("");
         sender.sendMessage("§eRecommended Models:");
-        sender.sendMessage("§7• §bOpenRouter: §fmeta-llama/llama-3.2-3b-instruct:free §7(fast), §fgoogle/gemini-2.0-flash-exp:free");
+        sender.sendMessage("§7• §bOpenRouter (Free): §fopenrouter/free §7(auto-routed), §fliquid/lfm-2.5-2.6b:free, §fgoogle/gemma-4-31b-it:free");
         sender.sendMessage("§7• §bGroq: §fllama-3.1-8b-instant §7(ultra fast, free tier)");
         sender.sendMessage("§7• §bGemini: §fgemini-1.5-flash §7(high rate limit, free tier)");
         sender.sendMessage("§7• §bOpenAI: §fgpt-4o-mini §7(paid, low cost), §fgpt-4o");
         sender.sendMessage("§7• §bCustom: §flocal Ollama / LM Studio (always free)");
+        sender.sendMessage("§7To switch model: §b/ai setmodel <model>");
     }
 
     private void handleTest(CommandSender sender) {
