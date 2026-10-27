@@ -76,6 +76,7 @@ public class PurpurConfig {
         commands.put("purpur", new PurpurCommand("purpur"));
         commands.put("voltpur", new VoltPurCommand("voltpur"));
         commands.put("padmin", new org.purpurmc.purpur.command.PAdminCommand("padmin"));
+        commands.put("ai", new org.purpurmc.purpur.ai.command.AiCommand("ai"));
 
         version = getInt("config-version", 48);
         set("config-version", 48);
