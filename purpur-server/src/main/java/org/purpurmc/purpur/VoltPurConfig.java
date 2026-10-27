@@ -97,6 +97,22 @@ public class VoltPurConfig {
         }
     }
 
+    public static void setAiKeyAndProvider(String provider, String key) {
+        aiProvider = provider;
+        aiApiKey = key;
+        aiEnabled = true;
+        if (config != null && CONFIG_FILE != null) {
+            config.set("ai.enabled", true);
+            config.set("ai.provider", provider);
+            config.set("ai.api-key", key);
+            try {
+                config.save(CONFIG_FILE);
+            } catch (IOException e) {
+                Bukkit.getLogger().warning("[VoltPur] Save failed: " + e.getMessage());
+            }
+        }
+    }
+
     public static void init() {
         CONFIG_FILE = new File("voltpur.yml");
         config = new YamlConfiguration();

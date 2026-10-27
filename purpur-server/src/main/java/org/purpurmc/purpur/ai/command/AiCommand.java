@@ -37,7 +37,7 @@ public class AiCommand extends Command {
     public AiCommand(String name) {
         super(name);
         this.description = "VoltPur practical AI assistant and server doctor";
-        this.usageMessage = "/ai [<question>|status|models|test|doctor|confirm-paid]";
+        this.usageMessage = "/ai [<question>|status|setkey|models|test|doctor|confirm-paid]";
         this.setPermission(null); // Checked per subcommand
         this.setAliases(Arrays.asList("voltpurai", "vai"));
     }
@@ -48,6 +48,7 @@ public class AiCommand extends Command {
             List<String> list = new ArrayList<>();
             list.add("status");
             if (sender.hasPermission(PERM_ADMIN)) {
+                list.add("setkey");
                 list.add("doctor");
                 list.add("models");
                 list.add("test");
@@ -55,6 +56,11 @@ public class AiCommand extends Command {
             }
             return list.stream()
                     .filter(s -> s.startsWith(args[0].toLowerCase()))
+                    .collect(Collectors.toList());
+        }
+        if (args.length == 2 && args[0].equalsIgnoreCase("setkey") && sender.hasPermission(PERM_ADMIN)) {
+            return Stream.of("openrouter", "groq", "gemini", "openai", "auto", "custom")
+                    .filter(s -> s.startsWith(args[1].toLowerCase()))
                     .collect(Collectors.toList());
         }
         return Collections.emptyList();
@@ -72,6 +78,11 @@ public class AiCommand extends Command {
         switch (sub) {
             case "status":
                 handleStatus(sender);
+                return true;
+
+            case "setkey":
+                if (!checkAdmin(sender)) return true;
+                handleSetKey(sender, args);
                 return true;
 
             case "models":
@@ -114,12 +125,62 @@ public class AiCommand extends Command {
         sender.sendMessage("§b/ai <question> §7- Ask AI with live server snapshot context");
         sender.sendMessage("§b/ai status §7- View AI provider, model, budget & usage");
         if (sender.hasPermission(PERM_ADMIN)) {
+            sender.sendMessage("§b/ai setkey <provider> <key> §7- Link AI provider & set API key");
             sender.sendMessage("§b/ai doctor §7- Run comprehensive performance diagnosis");
             sender.sendMessage("§b/ai models §7- View provider models and recommendations");
             sender.sendMessage("§b/ai test §7- Async connection and latency test");
             sender.sendMessage("§b/ai confirm-paid §7- Confirm permission to use paid models");
         }
-        sender.sendMessage("§7Config: §evoltpur.yml §7(modules.ai.*)");
+        sender.sendMessage("§7Config: §evoltpur.yml §7(ai.*)");
+    }
+
+    private void handleSetKey(CommandSender sender, String[] args) {
+        String provider = "auto";
+        String key = "";
+
+        if (args.length >= 3) {
+            provider = args[1].toLowerCase().trim();
+            key = args[2].trim();
+        } else if (args.length == 2) {
+            String candidate = args[1].trim();
+            if (isKnownProvider(candidate)) {
+                sender.sendMessage("§c[VoltPur AI] Usage: /ai setkey " + candidate + " <API_KEY>");
+                return;
+            }
+            key = candidate;
+            provider = "auto";
+        } else {
+            sender.sendMessage("§c[VoltPur AI] Usage: /ai setkey <provider> <API_KEY>");
+            sender.sendMessage("§7Providers: §bopenrouter§7, §bgroq§7, §bgemini§7, §bopenai§7, §bcustom§7, §bauto");
+            return;
+        }
+
+        if (key.isBlank()) {
+            sender.sendMessage("§c[VoltPur AI] API key cannot be empty.");
+            return;
+        }
+
+        if (!"auto".equals(provider) && !isKnownProvider(provider)) {
+            sender.sendMessage("§c[VoltPur AI] Unknown provider '" + provider + "'.");
+            sender.sendMessage("§7Valid providers: §bopenrouter§7, §bgroq§7, §bgemini§7, §bopenai§7, §bcustom§7, §bauto");
+            return;
+        }
+
+        VoltPurConfig.setAiKeyAndProvider(provider, key);
+        AiClient.clearCache();
+
+        AiRouter.RouteInfo route = AiRouter.resolveRoute();
+        sender.sendMessage("§a[VoltPur AI] Successfully linked provider §b" + route.provider.name() +
+                " §awith key §e" + AiClient.maskKey(key) + "§a!");
+        sender.sendMessage("§7AI is enabled. Default model: §f" + route.model +
+                (route.isFreeTier ? " §a(FREE)" : " §e(PAID - requires /ai confirm-paid)"));
+        sender.sendMessage("§7Saved to voltpur.yml. Run §b/ai test §7to verify connection.");
+    }
+
+    private static boolean isKnownProvider(String name) {
+        String n = name.toLowerCase();
+        return n.equals("openrouter") || n.equals("groq") || n.equals("gemini")
+                || n.equals("openai") || n.equals("custom");
     }
 
     private void handleStatus(CommandSender sender) {

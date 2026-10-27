@@ -203,4 +203,13 @@ public class VoltPurAiTest {
         // Console (null UUID) has no cooldown
         assertEquals(0, AiClient.checkCooldown(null));
     }
+
+    @Test
+    void testSetAiKeyAndProvider() {
+        VoltPurConfig.setAiKeyAndProvider("groq", "gsk_test12345678");
+        assertTrue(VoltPurConfig.aiEnabled, "Setting key must automatically enable AI");
+        assertEquals("groq", VoltPurConfig.aiProvider);
+        assertEquals("gsk_test12345678", VoltPurConfig.aiApiKey);
+        assertEquals(AiRouter.Provider.GROQ, AiRouter.detectProvider());
+    }
 }
